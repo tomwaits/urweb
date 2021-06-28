@@ -2367,24 +2367,20 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                                L.CApp ((L.CFfi ("Basis", "option"), _), _) =>
                                (L'.ECase ((L'.ERel 2, loc),
                                           [((L'.PPrim (Prim.String (Prim.Normal, "=")), loc),
-                                            if #supportsIsDistinctFrom (Settings.currentDbms ()) then
-                                                strcat [str "((",
-                                                        (L'.ERel 1, loc),
-                                                        str " IS NOT DISTINCT FROM ",
-                                                        (L'.ERel 0, loc),
-                                                        str "))"]
-                                            else
-                                                strcat [str "((",
-                                                        (L'.ERel 1, loc),
-                                                        str " ",
-                                                        (L'.ERel 2, loc),
-                                                        str " ",
-                                                        (L'.ERel 0, loc),
-                                                        str ") OR ((",
-                                                        (L'.ERel 1, loc),
-                                                        str ") IS NULL AND (",
-                                                        (L'.ERel 0, loc),
-                                                        str ") IS NULL))"]),
+                                            (* Always use the OR-form even where the DBMS supports
+                                             * IS NOT DISTINCT FROM: the latter defeats index use on
+                                             * Postgres (measured ~15x slower). urweb/urweb#223 / PR#233. *)
+                                            strcat [str "((",
+                                                    (L'.ERel 1, loc),
+                                                    str " ",
+                                                    (L'.ERel 2, loc),
+                                                    str " ",
+                                                    (L'.ERel 0, loc),
+                                                    str ") OR ((",
+                                                    (L'.ERel 1, loc),
+                                                    str ") IS NULL AND (",
+                                                    (L'.ERel 0, loc),
+                                                    str ") IS NULL))"]),
                                            ((L'.PPrim (Prim.String (Prim.Normal, "<->")), loc),
                                             strcat [str "COALESCE((",
                                                     (L'.ERel 1, loc),
