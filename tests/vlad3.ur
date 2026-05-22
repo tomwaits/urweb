@@ -22,6 +22,7 @@ and signin r =
     setCookie user {Value = {EMail = r.EMail},
                     Expires = None, (* Some (readError "2012-11-6
 00:00:00"), *)
-                    Secure = False
+                    Secure = False,
+                    HttpOnly = True
                    };
     main ()

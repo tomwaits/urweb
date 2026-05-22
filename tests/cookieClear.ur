@@ -3,7 +3,8 @@ cookie c : int
 fun setit () =
     setCookie c {Value = 13,
                  Expires = None,
-                 Secure = False};
+                 Secure = False,
+                 HttpOnly = True};
     return <xml/>
 
 fun doit () =

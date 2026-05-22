@@ -1307,7 +1307,8 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                 val rt = (L'.TRecord [("Value", t),
                                       ("Expires", (L'.TOption (L'.TFfi ("Basis", "time"),
                                                                loc), loc)),
-                                      ("Secure", (L'.TFfi ("Basis", "bool"), loc))], loc)
+                                      ("Secure", (L'.TFfi ("Basis", "bool"), loc)),
+                                      ("HttpOnly", (L'.TFfi ("Basis", "bool"), loc))], loc)
 
                 fun fd x = (L'.EField ((L'.ERel 1, loc), x), loc)
                 val (e, fm) = urlifyExp env fm (fd "Value", t)
@@ -1319,7 +1320,8 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                                                                                     ((L'.ERel 2, loc), s),
                                                                                     (e, s),
                                                                                     (fd "Expires", (L'.TOption (L'.TFfi ("Basis", "time"), loc), loc)),
-                                                                                    (fd "Secure", (L'.TFfi ("Basis", "bool"), loc))])
+                                                                                    (fd "Secure", (L'.TFfi ("Basis", "bool"), loc)),
+                                                                                    (fd "HttpOnly", (L'.TFfi ("Basis", "bool"), loc))])
                                               , loc)), loc)), loc)), loc),
                  fm)
             end

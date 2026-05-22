@@ -207,7 +207,8 @@ con http_cookie :: Type -> Type
 val getCookie : t ::: Type -> http_cookie t -> transaction (option t)
 val setCookie : t ::: Type -> http_cookie t -> {Value : t,
                                                 Expires : option time,
-                                                Secure : bool} -> transaction unit
+                                                Secure : bool,
+                                                HttpOnly : bool} -> transaction unit
 val clearCookie : t ::: Type -> http_cookie t -> transaction unit
 
 type requestHeader

@@ -3,13 +3,15 @@ cookie c : {A : string, B : float, C : int}
 fun set r =
     setCookie c {Value = {A = r.A, B = readError r.B, C = readError r.C},
                  Expires = None,
-                 Secure = False};
+                 Secure = False,
+                 HttpOnly = True};
     return <xml>Cookie set.</xml>
 
 fun setExp r =
     setCookie c {Value = {A = r.A, B = readError r.B, C = readError r.C},
                  Expires = Some (readError "2012-11-6 00:00:00"),
-                 Secure = False};
+                 Secure = False,
+                 HttpOnly = True};
     return <xml>Cookie set robustly.</xml>
 
 fun delete () =

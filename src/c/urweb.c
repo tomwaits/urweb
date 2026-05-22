@@ -3560,7 +3560,7 @@ static void set_cookie(uw_context ctx) {
     ctx->needsResig = 1;
 }
 
-uw_unit uw_Basis_set_cookie(uw_context ctx, uw_Basis_string prefix, uw_Basis_string c, uw_Basis_string v, uw_Basis_time *expires, uw_Basis_bool secure) {
+uw_unit uw_Basis_set_cookie(uw_context ctx, uw_Basis_string prefix, uw_Basis_string c, uw_Basis_string v, uw_Basis_time *expires, uw_Basis_bool secure, uw_Basis_bool httponly) {
   uw_write_header(ctx, "Set-Cookie: ");
   uw_write_header(ctx, c);
   uw_write_header(ctx, "=");
@@ -3581,6 +3581,8 @@ uw_unit uw_Basis_set_cookie(uw_context ctx, uw_Basis_string prefix, uw_Basis_str
   }
   if (secure)
     uw_write_header(ctx, "; secure");
+  if (httponly)
+    uw_write_header(ctx, "; httponly");
   uw_write_header(ctx, "\r\n");
   set_cookie(ctx);
 

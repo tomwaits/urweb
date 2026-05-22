@@ -232,7 +232,7 @@ void uw_Basis_clear_page(struct uw_context *);
 void uw_write_script(struct uw_context *, uw_Basis_string);
 
 uw_Basis_string uw_Basis_get_cookie(struct uw_context *, uw_Basis_string c);
-uw_unit uw_Basis_set_cookie(struct uw_context *, uw_Basis_string prefix, uw_Basis_string c, uw_Basis_string v, uw_Basis_time *expires, uw_Basis_bool secure);
+uw_unit uw_Basis_set_cookie(struct uw_context *, uw_Basis_string prefix, uw_Basis_string c, uw_Basis_string v, uw_Basis_time *expires, uw_Basis_bool secure, uw_Basis_bool httponly);
 uw_unit uw_Basis_clear_cookie(struct uw_context *, uw_Basis_string prefix, uw_Basis_string c);
 
 uw_Basis_channel uw_Basis_new_channel(struct uw_context *, uw_unit);
