@@ -15,15 +15,16 @@ all-local: smlnj mlton
 
 SUBDIRS = src/c
 
-.PHONY: smlnj mlton package reauto test
+.PHONY: smlnj mlton mlton-tc test check-local
 
 smlnj: src/urweb.cm xml/entities.sml
 mlton: bin/urweb
 mlton-tc: bin/urwebtc
 
 clean-local:
-	rm -f bin/urweb src/urweb.mlton.* \
+	rm -f bin/urweb bin/urwebtc compiler.du src/urweb.mlton.* \
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml
+	rm -f demo/demo.exe demo/demo.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -126,8 +127,21 @@ dist-hook:
 TESTDB = /tmp/urweb.db
 TESTPID = /tmp/urweb.pid
 
-test:
+# demo/demo.exe is produced by compiling the bundled demo with the
+# freshly built compiler. It genuinely depends on bin/urweb and, because
+# -boot makes the demo link against the in-tree C runtime, on the
+# src/c libraries. The original rule declared neither, so `make test`
+# from a clean tree failed and parallel builds were racy. bin/urweb is a
+# real target here; the src/c sub-make orders this after the SUBDIRS
+# libraries (a no-op when they are already current).
+demo/demo.exe: bin/urweb
+	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
 	bin/urweb -boot -noEmacs -dbms sqlite -db $(TESTDB) -demo /Demo demo
+
+# Wire the custom test target into automake's standard `make check`.
+check-local: test
+
+test: demo/demo.exe
 	rm -f $(TESTDB)
 	sqlite3 $(TESTDB) < demo/demo.sql
 	demo/demo.exe -q -a 127.0.0.1 & echo $$! > $(TESTPID)

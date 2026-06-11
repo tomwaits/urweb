@@ -1,56 +1,144 @@
-{ stdenv, lib, fetchFromGitHub, file, openssl, mlton
-, mysql, postgresql, sqlite, gcc
-, automake, autoconf, libtool, icu, nix-gitignore
+{
+  autoconf,
+  automake,
+  curl,
+  gcc,
+  icu,
+  lib,
+  libtool,
+  linkFarm,
+  makeBinaryWrapper,
+  mlton20210117,
+  openssl,
+  postgresql,
+  runCommand,
+  sqlite,
+  stdenv,
+  urweb,
 }:
 
-stdenv.mkDerivation rec {
-  name = "urweb-${version}";
-  version = "2018-06-22";
-  
-  # src = fetchurl {
-  #   url = "http://www.impredicative.com/ur/${name}.tgz";
-  #   sha256 = "17qh9mcmlhbv6r52yij8l9ik7j7x6x7c09lf6pznnbdh4sf8p5wb";
-  # };
+stdenv.mkDerivation {
+  pname = "urweb";
+  version = "20200209";
 
-  # src = fetchFromGitHub {
-  #   owner = "FrigoEU";
-  #   repo = "urweb";
-  #   rev = "e52ce9f542f64750941cfd84efdb6d993ee20ff0";
-  #   sha256 = "19ba5n7g1dxy7q9949aakqplchsyzwrrnxv8v604vx5sg7fdfn3b";
-  # };
-  src = ./.;
+  src = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.intersection (lib.fileset.gitTracked ./.) (
+      lib.fileset.unions [
+        ./autogen.sh
+        ./configure.ac
+        ./demo
+        ./doc
+        ./include
+        ./lib
+        ./m4
+        ./Makefile.am
+        ./src
+        ./tests
+        ./xml
+      ]
+    );
+  };
 
-  buildInputs = [ openssl mlton mysql.connector-c postgresql sqlite automake autoconf libtool icu.dev openssl.dev];
+  # build-time dependencies
+  nativeBuildInputs = [
+    autoconf
+    automake
+    libtool
+    mlton20210117
+  ];
 
-  # prePatch = ''
-  #   sed -e 's@/usr/bin/file@${file}/bin/file@g' -i configure
-  # '';
+  # link/runtime dependencies
+  buildInputs = [
+    icu
+    openssl
+    postgresql
+    sqlite
+  ];
 
-  configureFlags = "--with-openssl=${openssl.dev}";
+  # test dependencies
+  nativeCheckInputs = [
+    curl
+  ];
+
+  configureFlags = [ "--with-openssl=${openssl.dev}" ];
 
   preConfigure = ''
-    ./autogen.sh
-    export PGHEADER="${postgresql}/include/libpq-fe.h";
-    export MSHEADER="${mysql.connector-c}/include/mysql/mysql.h";
-    export SQHEADER="${sqlite.dev}/include/sqlite3.h";
-    export CC="${gcc}/bin/gcc";
+    export SQHEADER="${sqlite.dev}/include/sqlite3.h"
+    export PGHEADER="${postgresql.dev}/include/libpq-fe.h"
+    export ICU_INCLUDES="-I${icu.dev}/include"
+    export CC="${gcc}/bin/gcc"
     export CCARGS="-I$out/include \
-                   -I${icu.dev}/include \
-                   -L${openssl.out}/lib \
-                   -L${mysql.connector-c}/lib \
-                   -L${postgresql.lib}/lib \
-                   -L${sqlite.out}/lib \
-                   -L${icu.out}/lib";
+      -L${lib.getLib openssl}/lib \
+      -L${sqlite.out}/lib \
+      -L${postgresql.lib}/lib \
+      -Wno-error=int-conversion"
+    ./autogen.sh
   '';
 
-  # Be sure to keep the statically linked libraries
+  # The urweb compiler links generated applications against the static
+  # archives, so keep the .a files in the output.
   dontDisableStatic = true;
+
+  buildPhase = ''
+    runHook preBuild
+    make
+    runHook postBuild
+  '';
+
+  doCheck = true;
+
+  checkPhase = ''
+    runHook preCheck
+    make test
+    runHook postCheck
+  '';
+
+  installPhase = ''
+    runHook preInstall
+    make install
+    runHook postInstall
+  '';
+
+  /*
+    withLibraries accepts urweb libraries:
+
+      urweb-with-libs = urweb.withLibraries {
+        foo = someLib;
+      };
+
+    Use it by calling the default executable:
+
+      ${lib.getExe urweb-with-libs} ...
+
+    This will allow importing the libraries in .urp files using
+
+      library $NIX_LIBS/foo
+  */
+  passthru.withLibraries =
+    libs:
+    let
+      libPath = linkFarm "urweb-libs" (lib.mapAttrsToList (name: path: { inherit name path; }) libs);
+    in
+    runCommand "urweb-with-libs"
+      {
+        nativeBuildInputs = [ makeBinaryWrapper ];
+        meta.mainProgram = "urweb-with-libs";
+      }
+      ''
+        makeWrapper ${urweb}/bin/urweb $out/bin/urweb \
+          --add-flags "-path NIX_LIBS ${libPath}"
+      '';
 
   meta = {
     description = "Advanced purely-functional web programming language";
-    homepage    = "http://www.impredicative.com/ur/";
-    license     = stdenv.lib.licenses.bsd3;
-    platforms   = stdenv.lib.platforms.linux ++ stdenv.lib.platforms.darwin;
-    maintainers = [ stdenv.lib.maintainers.thoughtpolice stdenv.lib.maintainers.sheganinans ];
+    mainProgram = "urweb";
+    homepage = "http://www.impredicative.com/ur/";
+    license = lib.licenses.bsd3;
+    platforms = lib.platforms.linux ++ lib.platforms.darwin;
+    maintainers = [
+      lib.maintainers.thoughtpolice
+      lib.maintainers.sheganinans
+    ];
   };
 }
