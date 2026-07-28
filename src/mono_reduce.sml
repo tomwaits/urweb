@@ -127,7 +127,7 @@ fun impure (e, _) =
 
       | EError _ => true
       (* returnBlob and redirect abort the enclosing request handler, just as
-       * error does, so they are effects regardless of their arguments —
+       * error does, so they are effects regardless of their arguments --
        * summarize agrees, giving all three [Abort]. *)
       | EReturnBlob _ => true
       | ERedirect _ => true

@@ -87,3 +87,4 @@ result
 
 # macos
 .DS_Store
+tests/dce.out
