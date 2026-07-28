@@ -242,13 +242,12 @@ fun checkTablesAndViews tables views =
 val checkTimezone =
     string ("{\n\
             \  time_t uw_tz_now = time(NULL);\n\
-            \  struct tm uw_tz_gm;\n\
-            \  if (gmtime_r(&uw_tz_now, &uw_tz_gm)) {\n\
-            \    long uw_tz_server, uw_tz_db;\n\
-            \    /* mktime reads uw_tz_gm (a UTC wall clock) as LOCAL time, so\n\
-            \       uw_tz_now minus that is the server's UTC offset in seconds. */\n\
-            \    uw_tz_gm.tm_isdst = -1;\n\
-            \    uw_tz_server = (long)(uw_tz_now - mktime(&uw_tz_gm));\n\
+            \  struct tm uw_tz_lt;\n\
+            \  if (localtime_r(&uw_tz_now, &uw_tz_lt)) {\n\
+            \    /* tm_gmtoff is the server's CURRENT UTC offset in seconds, east\n\
+            \       positive and DST-adjusted -- the same convention and instant as\n\
+            \       Postgres EXTRACT(TIMEZONE FROM CURRENT_TIMESTAMP). */\n\
+            \    long uw_tz_server = uw_tz_lt.tm_gmtoff, uw_tz_db;\n\
             \    res = PQexec(conn, \"SELECT EXTRACT(TIMEZONE FROM CURRENT_TIMESTAMP)::int8\");\n\
             \    if (res != NULL && PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) == 1) {\n\
             \      uw_tz_db = atol(PQgetvalue(res, 0, 0));\n\
