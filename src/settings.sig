@@ -222,7 +222,6 @@ signature SETTINGS = sig
          nestedRelops : bool,
          windowFunctions : bool,
          requiresTimestampDefaults : bool,
-         supportsIsDistinctFrom : bool,
          supportsSHA512 : {InitializeDb : string,
                            GenerateHash : string -> string} option,
          (* If supported, give the SQL code to
