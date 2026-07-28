@@ -173,14 +173,18 @@ test: demo/demo.exe tests/dce.exe
 	done
 	@# Composite-key column-order guard (urweb/urweb#228/#261): a multi-column
 	@# PRIMARY KEY / UNIQUE must emit its columns in DECLARED order. pkeyorder's
-	@# key order (Bb,Aa)/(Cc,Aa) differs from any alphabetical reordering, so the
-	@# order is observable in the generated Postgres DDL. Newlines are flattened
-	@# so the column-order check is layout-independent.
+	@# key orders (Bb,Aa)/(Cc,Aa)/(Cc,Bb,Aa) differ from any alphabetical
+	@# reordering, so the order is observable in the generated Postgres DDL. All
+	@# whitespace is squeezed to single spaces so the column-order check is
+	@# layout-independent (the pretty-printer may break a wide clause across
+	@# lines). NB: #261's other half -- MySQL's `(255)` length prefix using each
+	@# column's own type -- is fixed in code but NOT exercised here (the nix
+	@# build has no mysql backend; textKeysNeedLengths is false for postgres).
 	@rm -f tests/pkeyorder.sql
 	bin/urweb -boot -noEmacs -dbms postgres -sql tests/pkeyorder.sql tests/pkeyorder \
 	  || { echo "Test 'pkeyorder' failed to compile"; false; }
 	@echo "--- emitted key DDL (pkeyorder) ---"; grep -iE 'PRIMARY KEY|UNIQUE' tests/pkeyorder.sql || true
-	@flat=`tr -d '\n' < tests/pkeyorder.sql`; \
+	@flat=`tr -s '[:space:]' ' ' < tests/pkeyorder.sql`; \
 	echo "$$flat" | grep -iqE 'PRIMARY KEY[^)]*bb[^)]*aa' \
 	  || { echo "Test 'pkeyorder' failed: PRIMARY KEY columns not in declared order (Bb, Aa) -- urweb/urweb#228"; false; }; \
 	echo "$$flat" | grep -iqE 'UNIQUE[^)]*cc[^)]*aa' \
