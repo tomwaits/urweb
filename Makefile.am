@@ -155,8 +155,22 @@ tests/dce.exe: bin/urweb | demo/demo.exe
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
 
+QUERY_FIXTURES = qguard agg
+
 test: demo/demo.exe tests/dce.exe
 	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
+	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
+	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
+	@# before. qguard spans plain SELECT + WHERE + ORDER BY (multiple, ASC/DESC,
+	@# by AS-alias), aggregates, GROUP BY (+ ORDER BY a grouped column), comma
+	@# join, UNION and LIMIT/OFFSET; agg adds the aggregate functions. -tc
+	@# suffices: the layer's main regression risk is type-level. (This net is a
+	@# prerequisite for the #269 fix.)
+	@for t in $(QUERY_FIXTURES); do \
+	  echo "==> typecheck query fixture: tests/$$t"; \
+	  bin/urweb -tc -boot -noEmacs tests/$$t \
+	    || { echo "Query fixture '$$t' failed to typecheck -- SQL-DSL regression guard"; exit 1; }; \
+	done
 	@# The header-name charset check runs in mono_opt, which a full -boot
 	@# compile reaches. For hdrbad (a name that must be REJECTED) the verdict is
 	@# whether the charset error ("Invalid string ... passed to 'bless*Header'")
