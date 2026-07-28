@@ -94,6 +94,10 @@ jobs:
           out=$(curl -s 'http://localhost:8090/Pgtest/main' || true)
           kill "$(cat /tmp/pgtest.pid)" 2>/dev/null || true
           echo "=== response ==="; echo "$out"
-          echo "$out" | grep -q '1=hello' \
-            || { echo "postgres-integration FAILED: insert/select round trip did not return '1=hello'"; exit 1; }
+          # Round trip through both tables and the view. The app only serves at
+          # all if its startup schema-structure check passed on every relation.
+          for want in 't1=hello' 'u1=note' 'v1=hello'; do \
+            echo "$out" | grep -q "$want" \
+              || { echo "postgres-integration FAILED: response missing '$want' (startup check or round trip broke)"; exit 1; }; \
+          done
           echo "postgres-integration: PASS"
