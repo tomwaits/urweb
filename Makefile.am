@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/hdrtok.exe tests/hdrbad.exe
+	rm -f tests/dce.exe tests/dce.out tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -171,6 +171,26 @@ test: demo/demo.exe tests/dce.exe
 	  bin/urweb -tc -boot -noEmacs tests/$$t \
 	    || { echo "Query fixture '$$t' failed to typecheck -- SQL-DSL regression guard"; exit 1; }; \
 	done
+	@# Composite-key column-order guard (urweb/urweb#228/#261): a multi-column
+	@# PRIMARY KEY / UNIQUE must emit its columns in DECLARED order. pkeyorder's
+	@# key orders (Bb,Aa)/(Cc,Aa)/(Cc,Bb,Aa) differ from any alphabetical
+	@# reordering, so the order is observable in the generated Postgres DDL. All
+	@# whitespace is squeezed to single spaces so the column-order check is
+	@# layout-independent (the pretty-printer may break a wide clause across
+	@# lines). NB: #261's other half -- MySQL's `(255)` length prefix using each
+	@# column's own type -- is fixed in code but NOT exercised here (the nix
+	@# build has no mysql backend; textKeysNeedLengths is false for postgres).
+	@rm -f tests/pkeyorder.sql
+	bin/urweb -boot -noEmacs -dbms postgres -sql tests/pkeyorder.sql tests/pkeyorder \
+	  || { echo "Test 'pkeyorder' failed to compile"; false; }
+	@echo "--- emitted key DDL (pkeyorder) ---"; grep -iE 'PRIMARY KEY|UNIQUE' tests/pkeyorder.sql || true
+	@flat=`tr -s '[:space:]' ' ' < tests/pkeyorder.sql`; \
+	echo "$$flat" | grep -iqE 'PRIMARY KEY[^)]*bb[^)]*aa' \
+	  || { echo "Test 'pkeyorder' failed: PRIMARY KEY columns not in declared order (Bb, Aa) -- urweb/urweb#228"; false; }; \
+	echo "$$flat" | grep -iqE 'UNIQUE[^)]*cc[^)]*aa' \
+	  || { echo "Test 'pkeyorder' failed: UNIQUE columns not in declared order (Cc, Aa) -- urweb/urweb#228"; false; }; \
+	echo "$$flat" | grep -iqE 'UNIQUE[^)]*cc[^)]*bb[^)]*aa' \
+	  || { echo "Test 'pkeyorder' failed: 3-column UNIQUE not in declared order (Cc, Bb, Aa) -- urweb/urweb#228 (source order not preserved for 3+ columns)"; false; }
 	@# The header-name charset check runs in mono_opt, which a full -boot
 	@# compile reaches. For hdrbad (a name that must be REJECTED) the verdict is
 	@# whether the charset error ("Invalid string ... passed to 'bless*Header'")
