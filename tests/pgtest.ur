@@ -12,9 +12,9 @@ view v = SELECT t.Id AS Vid, t.Name AS Vname FROM t
 
 fun main () : transaction page =
     n <- now;
-    dml (DELETE FROM t WHERE t.Id = {[1]});
+    dml (DELETE FROM t WHERE Id = {[1]});
     dml (INSERT INTO t (Id, Name, When) VALUES ({[1]}, {["hello"]}, {[n]}));
-    dml (DELETE FROM u WHERE u.Uid = {[1]});
+    dml (DELETE FROM u WHERE Uid = {[1]});
     dml (INSERT INTO u (Uid, Note) VALUES ({[1]}, {["note"]}));
     trows <- queryX1 (SELECT t.Id, t.Name FROM t ORDER BY t.Id)
                      (fn r => <xml>t{[r.Id]}={[r.Name]};</xml>);
