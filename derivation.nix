@@ -10,16 +10,16 @@
   makeBinaryWrapper,
   mlton20210117,
   openssl,
+  pkg-config,
   postgresql,
   runCommand,
   sqlite,
   stdenv,
-  urweb,
 }:
 
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "urweb";
-  version = "20200209";
+  version = "20200209-unstable-2026-07-28";
 
   src = lib.fileset.toSource {
     root = ./.;
@@ -46,6 +46,7 @@ stdenv.mkDerivation {
     automake
     libtool
     mlton20210117
+    pkg-config
   ];
 
   # link/runtime dependencies
@@ -126,7 +127,7 @@ stdenv.mkDerivation {
         meta.mainProgram = "urweb-with-libs";
       }
       ''
-        makeWrapper ${urweb}/bin/urweb $out/bin/urweb \
+        makeWrapper ${finalAttrs.finalPackage}/bin/urweb $out/bin/urweb \
           --add-flags "-path NIX_LIBS ${libPath}"
       '';
 
@@ -135,10 +136,12 @@ stdenv.mkDerivation {
     mainProgram = "urweb";
     homepage = "http://www.impredicative.com/ur/";
     license = lib.licenses.bsd3;
-    platforms = lib.platforms.linux ++ lib.platforms.darwin;
+    # CC is pinned to gcc in preConfigure and CI covers linux only; restore
+    # darwin here once a darwin build is actually exercised.
+    platforms = lib.platforms.linux;
     maintainers = [
       lib.maintainers.thoughtpolice
       lib.maintainers.sheganinans
     ];
   };
-}
+})
