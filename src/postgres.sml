@@ -232,6 +232,32 @@ fun checkTablesAndViews tables views =
         ]
     end
                                       
+(* Ur/Web serializes an absolute [now] as server-LOCAL wall time into a
+ * [timestamp without time zone] column (uw_Basis_sqlifyTime uses localtime_r),
+ * while SQL CURRENT_TIMESTAMP uses the database SESSION time zone.  When the two
+ * zones differ, timestamps from the two sources are skewed by the offset -- a
+ * silent data hazard (urweb/urweb#163).  Warn at startup if the offsets differ;
+ * the robust deployment fix is to pin both the server and the database to UTC.
+ * [conn] and [res] are already in scope in the generated uw_db_validate. *)
+val checkTimezone =
+    string ("{\n\
+            \  time_t uw_tz_now = time(NULL);\n\
+            \  struct tm uw_tz_lt;\n\
+            \  if (localtime_r(&uw_tz_now, &uw_tz_lt)) {\n\
+            \    /* tm_gmtoff is the server's CURRENT UTC offset in seconds, east\n\
+            \       positive and DST-adjusted -- the same convention and instant as\n\
+            \       Postgres EXTRACT(TIMEZONE FROM CURRENT_TIMESTAMP). */\n\
+            \    long uw_tz_server = uw_tz_lt.tm_gmtoff, uw_tz_db;\n\
+            \    res = PQexec(conn, \"SELECT EXTRACT(TIMEZONE FROM CURRENT_TIMESTAMP)::int8\");\n\
+            \    if (res != NULL && PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) == 1) {\n\
+            \      uw_tz_db = atol(PQgetvalue(res, 0, 0));\n\
+            \      if (uw_tz_db != uw_tz_server)\n\
+            \        fprintf(stderr, \"Warning: the database session time zone (UTC offset %ld s) differs from the server process (%ld s). Ur/Web writes 'now' as server-local time into 'timestamp without time zone', while SQL CURRENT_TIMESTAMP uses the session zone, so timestamps from the two sources will be skewed. Pin both the database and the server to UTC.\\n\", uw_tz_db, uw_tz_server);\n\
+            \    }\n\
+            \    if (res != NULL) PQclear(res);\n\
+            \  }\n\
+            \}\n")
+
 fun init {dbstring, prepared = ss, tables, views, sequences} =
     box [if #persistent (currentProtocol ()) then
              box [string "static void uw_db_validate(uw_context ctx) {",
@@ -242,6 +268,9 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
                   newline,
                   newline,
                   checkTablesAndViews tables views,
+                  newline,
+                  checkTimezone,
+                  newline,
 
                   p_list_sep newline
                              (fn s =>

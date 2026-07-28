@@ -123,6 +123,26 @@ jobs:
           done
           echo "postgres-integration: PASS (round trip on a matching schema)"
 
+      - name: Startup warns on database/server time-zone skew (#163)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -uo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          # The runner's server process is UTC; make the DB's default session
+          # zone differ. Ur/Web writes `now` in server-local time but SQL
+          # CURRENT_TIMESTAMP uses the session zone -- the #163 skew. The schema
+          # is still valid here, so the binary starts and must WARN on stderr.
+          psql "$DB" -v ON_ERROR_STOP=1 -c "ALTER DATABASE urwebtest SET timezone TO 'America/New_York';"
+          tests/pgtest.exe -q -a 127.0.0.1 -p 8092 2>/tmp/tz.stderr & pid=$!
+          sleep 3
+          kill "$pid" 2>/dev/null || true
+          psql "$DB" -v ON_ERROR_STOP=1 -c "ALTER DATABASE urwebtest SET timezone TO 'UTC';"
+          echo "=== binary stderr under a non-UTC session ==="; cat /tmp/tz.stderr || true
+          grep -qi 'time zone' /tmp/tz.stderr \
+            || { echo "TZ FAILED: binary did not warn about the database/server time-zone skew (urweb/urweb#163)"; exit 1; }
+          echo "timezone-skew-warning: PASS"
+
       - name: Negative — the startup schema check REJECTS schema drift (#230)
         env:
           PGPASSWORD: postgres
