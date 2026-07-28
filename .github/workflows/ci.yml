@@ -121,4 +121,28 @@ jobs:
             echo "$out" | grep -q "$want" \
               || { echo "postgres-integration FAILED: response missing '$want' (startup check or round trip broke)"; exit 1; }; \
           done
-          echo "postgres-integration: PASS"
+          echo "postgres-integration: PASS (round trip on a matching schema)"
+
+      - name: Negative — the startup schema check REJECTS schema drift (#230)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -uo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          # Drift the schema with an extra uw_-prefixed column the compiled
+          # binary does NOT know about. No query references it, so ONLY the
+          # startup schema-structure check can catch this -- isolating the check
+          # from any query-time error. The refactor (#230) collapsed that check
+          # to a constant number of queries; this proves it still has teeth.
+          psql "$DB" -v ON_ERROR_STOP=1 -c 'ALTER TABLE uw_Pgtest_t ADD COLUMN uw_extra integer;'
+          tests/pgtest.exe -q -a 127.0.0.1 -p 8091 & pid=$!
+          sleep 3
+          resp=$(curl -s 'http://localhost:8091/Pgtest/main' || true)
+          kill "$pid" 2>/dev/null || true
+          echo "=== drifted-schema response ==="; echo "[$resp]"
+          # A working check aborts startup (or refuses the request), so the full
+          # round trip must NOT come back. If it does, the check is a no-op.
+          if echo "$resp" | grep -q 't1=hello'; then
+            echo "NEGATIVE FAILED: binary served despite an unexpected extra column -- the startup schema check (#230) did NOT catch schema drift"; exit 1
+          fi
+          echo "startup-check-rejects-drift: PASS (binary refused the drifted schema)"
