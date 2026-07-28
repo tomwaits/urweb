@@ -24,6 +24,15 @@ jobs:
 
       - uses: cachix/install-nix-action@v27
 
+      # Cache /nix/store across runs so the pinned nixpkgs (fetched by
+      # default.nix) and the built compiler are not re-downloaded/rebuilt every
+      # time. Fixes GitHub's HTTP 429 rate-limiting of the nixpkgs archive under
+      # frequent CI, and makes CI dramatically faster (near-instant on cache hit).
+      - uses: nix-community/cache-nix-action@v5
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('default.nix', 'derivation.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+
       # derivation.nix drives the full autotools build with a pinned modern
       # toolchain and runs `make test` in its checkPhase (doCheck = true),
       # so this one command is build + demo compile + HTTP smoke tests.
@@ -49,6 +58,9 @@ jobs:
   # trip through a real server.
   postgres-integration:
     name: postgres integration (runtime)
+    # Run after nix-build so the store cache is warm (avoids both jobs
+    # cold-fetching the pinned nixpkgs in parallel and racing the cache key).
+    needs: nix-build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 90
     services:
@@ -68,6 +80,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: cachix/install-nix-action@v27
+
+      # Cache /nix/store across runs so the pinned nixpkgs (fetched by
+      # default.nix) and the built compiler are not re-downloaded/rebuilt every
+      # time. Fixes GitHub's HTTP 429 rate-limiting of the nixpkgs archive under
+      # frequent CI, and makes CI dramatically faster (near-instant on cache hit).
+      - uses: nix-community/cache-nix-action@v5
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('default.nix', 'derivation.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
 
       - name: Build the compiler
         run: nix-build
