@@ -43,27 +43,27 @@ if test -z "$MLYACC"; then
     exit 1
 fi
 
-if test $prefix = "NONE"; then
+if test "$prefix" = "NONE"; then
     prefix=/usr/local
 fi
 
-if test -z $BIN; then
+if test -z "$BIN"; then
     BIN=$prefix/bin
 fi
 
-if test -z $LIB; then
+if test -z "$LIB"; then
     LIB=$prefix/lib
 fi
 
-if test -z $SRCLIB; then
+if test -z "$SRCLIB"; then
     SRCLIB=$prefix/lib/urweb
 fi
 
-if test -z $INCLUDE; then
+if test -z "$INCLUDE"; then
     INCLUDE=$prefix/include/urweb
 fi
 
-if test -z $SITELISP; then
+if test -z "$SITELISP"; then
     SITELISP=$prefix/share/emacs/site-lisp/urweb-mode
 fi
 
@@ -75,33 +75,39 @@ AC_ARG_WITH([emacs],
 
 AM_CONDITIONAL(USE_EMACS, test "x$with_emacs" = xyes)
 
-if test -z $PGHEADER; then
+if test -z "$PGHEADER"; then
    AC_CHECK_HEADERS([postgresql/libpq-fe.h],
                     [PGHEADER=postgresql/libpq-fe.h])
 fi
 
-if test -z $PGHEADER; then
+if test -z "$PGHEADER"; then
    PGHEADER=libpq-fe.h
 fi
 
-if test -z $MSHEADER; then
+if test -z "$MSHEADER"; then
    AC_CHECK_HEADERS([mysql/mysql.h],
                     [MSHEADER=mysql/mysql.h])
 fi
 
-if test -z $MSHEADER; then
+if test -z "$MSHEADER"; then
    MSHEADER=mysql.h
 fi
 
-if test -z $SQHEADER; then
+if test -z "$SQHEADER"; then
    SQHEADER=sqlite3.h
 fi
+
+if test -z "$ICU_INCLUDES"; then
+   ICU_INCLUDES=$ICU_CPPFLAGS
+fi
+
+CPPFLAGS="$ICU_INCLUDES $CPPFLAGS"
 
 AC_CHECK_HEADERS([unicode/utypes.h],
                  [],
                  [echo "You must install ICU."; exit 1])
 
-if test $WORKING_VERSION = "1"; then
+if test "$WORKING_VERSION" = "1"; then
    VERSION="$VERSION + `git log -1 --format="%H" || echo ?`"
 fi
 
@@ -124,7 +130,7 @@ AC_SUBST(SQHEADER)
 AC_SUBST(VERSION)
 AC_SUBST(PTHREAD_CFLAGS)
 AC_SUBST(PTHREAD_LIBS)
-AC_SUBST(ICU_INCLUDES, $ICU_CPPFLAGS)
+AC_SUBST(ICU_INCLUDES)
 AC_SUBST(ICU_LIBS)
 
 AC_CONFIG_FILES([
