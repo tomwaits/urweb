@@ -184,7 +184,9 @@ test: demo/demo.exe tests/dce.exe
 	echo "$$flat" | grep -iqE 'PRIMARY KEY[^)]*bb[^)]*aa' \
 	  || { echo "Test 'pkeyorder' failed: PRIMARY KEY columns not in declared order (Bb, Aa) -- urweb/urweb#228"; false; }; \
 	echo "$$flat" | grep -iqE 'UNIQUE[^)]*cc[^)]*aa' \
-	  || { echo "Test 'pkeyorder' failed: UNIQUE columns not in declared order (Cc, Aa) -- urweb/urweb#228"; false; }
+	  || { echo "Test 'pkeyorder' failed: UNIQUE columns not in declared order (Cc, Aa) -- urweb/urweb#228"; false; }; \
+	echo "$$flat" | grep -iqE 'UNIQUE[^)]*cc[^)]*bb[^)]*aa' \
+	  || { echo "Test 'pkeyorder' failed: 3-column UNIQUE not in declared order (Cc, Bb, Aa) -- urweb/urweb#228 (source order not preserved for 3+ columns)"; false; }
 	@# The header-name charset check runs in mono_opt, which a full -boot
 	@# compile reaches. For hdrbad (a name that must be REJECTED) the verdict is
 	@# whether the charset error ("Invalid string ... passed to 'bless*Header'")
