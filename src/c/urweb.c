@@ -4029,6 +4029,17 @@ static int mime_format(const char *s) {
   return 1;
 }
 
+// An HTTP header field name is an RFC 7230 "token"; in particular '/' (which
+// mime_format permits) is not a legal header-name character.  Keep this in
+// sync with validHeader in src/settings.sml.  See urweb/urweb#271.
+static int header_format(const char *s) {
+  for (; *s; ++s)
+    if (!isalnum((int)*s) && !strchr("!#$%&'*+-.^_`|~", *s))
+      return 0;
+
+  return 1;
+}
+
 uw_Basis_string uw_Basis_blessMime(uw_context ctx, uw_Basis_string s) {
   if (!mime_format(s))
     uw_error(ctx, FATAL, "MIME type \"%s\" contains invalid character", uw_Basis_htmlifyString(ctx, s));
@@ -4050,7 +4061,7 @@ uw_Basis_string uw_Basis_checkMime(uw_context ctx, uw_Basis_string s) {
 }
 
 uw_Basis_string uw_Basis_blessRequestHeader(uw_context ctx, uw_Basis_string s) {
-  if (!mime_format(s))
+  if (!header_format(s))
     uw_error(ctx, FATAL, "Request header \"%s\" contains invalid character", uw_Basis_htmlifyString(ctx, s));
 
   if (ctx->app->check_requestHeader(s))
@@ -4060,7 +4071,7 @@ uw_Basis_string uw_Basis_blessRequestHeader(uw_context ctx, uw_Basis_string s) {
 }
 
 uw_Basis_string uw_Basis_checkRequestHeader(uw_context ctx, uw_Basis_string s) {
-  if (!mime_format(s))
+  if (!header_format(s))
     return NULL;
 
   if (ctx->app->check_requestHeader(s))
@@ -4070,7 +4081,7 @@ uw_Basis_string uw_Basis_checkRequestHeader(uw_context ctx, uw_Basis_string s) {
 }
 
 uw_Basis_string uw_Basis_blessResponseHeader(uw_context ctx, uw_Basis_string s) {
-  if (!mime_format(s))
+  if (!header_format(s))
     uw_error(ctx, FATAL, "Response header \"%s\" contains invalid character", uw_Basis_htmlifyString(ctx, s));
 
   if (ctx->app->check_responseHeader(s))
@@ -4088,7 +4099,7 @@ static int envVar_format(const char *s) {
 }
 
 uw_Basis_string uw_Basis_checkResponseHeader(uw_context ctx, uw_Basis_string s) {
-  if (!envVar_format(s))
+  if (!header_format(s))
     return NULL;
 
   if (ctx->app->check_responseHeader(s))
