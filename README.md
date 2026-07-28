@@ -1,6 +1,14 @@
-[![Build Status](https://api.travis-ci.org/urweb/urweb.png?branch=master)](https://travis-ci.org/urweb/urweb)
+[![CI](https://github.com/tomwaits/urweb/actions/workflows/ci.yml/badge.svg?branch=pidmint%2Fmain)](https://github.com/tomwaits/urweb/actions/workflows/ci.yml)
 
 # The Ur/Web Programming Language
+
+> **About this fork:** this is a maintained fork of
+> [urweb/urweb](https://github.com/urweb/urweb). The `master` branch mirrors
+> upstream (currently `55a881f`, 2024-03); the default `pidmint/main` branch
+> additionally carries build fixes and correctness patches, many harvested from
+> long-open upstream pull requests (each merge commit names its source PR).
+> Fixes authored here are also offered upstream. License and copyright are
+> unchanged (BSD-3-Clause, see `LICENSE`).
 
 Implementation of a domain-specific functional programming language for web applications.  Please see [the Ur/Web project web site](http://www.impredicative.com/ur/) for much more information!  Here's a summary:
 
@@ -32,27 +40,45 @@ wget http://localhost:8080/Hello/main -O -
 
 # Simple Installation
 
+## With Nix (recommended)
+
+From a checkout of this repository:
+
+```sh
+nix-build          # builds the compiler and runs the test suite
+result/bin/urweb
+```
+
+(`nixpkgs` also ships a `urweb` package, but it is the 20200209 release, which
+predates several build and correctness fixes carried on this branch.)
+
+## From Source
+
 The normal UNIX-style build and installation procedure works (where the `make` program needs to be GNU Make, and where `./autogen.sh` must be run first only if starting from a Git checkout rather than a release tarball).
 
 ```sh
+./autogen.sh
 ./configure
 make
 sudo make install
 ```
 
-However, some popular platforms have standard packages for Ur/Web, making installation and uninstallation even easier.
+Build requirements: [MLton](http://mlton.org) (with `mllex` and `mlyacc`),
+autoconf/automake/libtool, OpenSSL, and ICU; database support additionally
+needs the client headers for PostgreSQL, MySQL, and/or SQLite. If
+`./configure` fails with `Permission denied`, the executable bits were lost
+during extraction (common when unpacking on Windows before moving into WSL) —
+run `sh ./autogen.sh` / `sh ./configure`, or re-extract inside your UNIX
+environment.
 
-## In Debian, Ubuntu, and Other Related Linux Distributions
+## Distribution Packages (a word of caution)
 
-```sh
-apt-get install urweb
-```
-
-## In Homebrew for Mac OS
-
-```sh
-brew install urweb
-```
+Ur/Web is **no longer packaged in current Debian and Ubuntu releases**
+(`apt-get install urweb` will not work; the package was dropped when its
+build dependencies became unsatisfiable on several architectures). The
+Homebrew formula installs the 20200209 release, which no longer matches
+current `demo/` sources and predates the fixes on this branch — prefer the
+Nix or source builds above.
 
 # For More Detail
 
