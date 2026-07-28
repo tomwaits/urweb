@@ -89,3 +89,4 @@ result
 .DS_Store
 tests/dce.out
 tests/pkeyorder.sql
+tests/pgtest.sql

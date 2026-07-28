@@ -38,3 +38,62 @@ jobs:
         run: |
           result/bin/urweb -version
           result/bin/urweb demo/hello
+
+  # Postgres RUNTIME integration. The nix-build job compiles + tests only on
+  # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
+  # the startup schema-structure check (#230), timestamp handling (#163), the
+  # generated DDL -- were never exercised at runtime. This job builds the
+  # compiler with nix, then OUTSIDE the sandbox compiles a Postgres app with
+  # the installed compiler (nix baked the libpq/gcc paths, so this works) and
+  # runs it against a live Postgres service, asserting an insert/select round
+  # trip through a real server.
+  postgres-integration:
+    name: postgres integration (runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: urwebtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+
+      - name: Build the compiler
+        run: nix-build
+
+      - name: Compile + run tests/pgtest against live Postgres
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: urwebtest
+        run: |
+          set -euo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          # Compile the app + emit its schema DDL (compile does not connect).
+          result/bin/urweb -dbms postgres -db "$DB" -sql tests/pgtest.sql tests/pgtest
+          echo "=== emitted schema ==="; cat tests/pgtest.sql
+          # Load the urweb-generated schema into the live database.
+          psql "$DB" -v ON_ERROR_STOP=1 -f tests/pgtest.sql
+          # Run the standalone server: this performs the startup schema-structure
+          # check (#230) against the loaded schema before serving.
+          tests/pgtest.exe -q -a 127.0.0.1 -p 8090 & echo $! > /tmp/pgtest.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8090/Pgtest/main' || true)
+          kill "$(cat /tmp/pgtest.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          echo "$out" | grep -q '1=hello' \
+            || { echo "postgres-integration FAILED: insert/select round trip did not return '1=hello'"; exit 1; }
+          echo "postgres-integration: PASS"
