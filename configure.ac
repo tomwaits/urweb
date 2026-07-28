@@ -18,23 +18,27 @@ AX_CHECK_OPENSSL([echo >/dev/null], [echo "You must install OpenSSL development 
 
 AX_CHECK_ICU([63.1], [echo >/dev/null], [echo "You must install ICU."; exit 1])
 
-AC_CHECK_PROG(MLTON, mlton, yes, [])
+AC_ARG_VAR([MLTON], [path to the mlton compiler (default: mlton found on PATH)])
+AC_ARG_VAR([MLLEX], [path to mllex (default: mllex found on PATH)])
+AC_ARG_VAR([MLYACC], [path to mlyacc (default: mlyacc found on PATH)])
 
-if test -z $MLTON; then
+AC_PATH_PROG([MLTON], [mlton], [])
+
+if test -z "$MLTON"; then
     echo "You must install MLton."
     exit 1
 fi
 
-AC_CHECK_PROG(MLLEX, mllex, yes, [])
+AC_PATH_PROG([MLLEX], [mllex], [])
 
-if test -z $MLLEX; then
+if test -z "$MLLEX"; then
     echo "You must install MLton (to get mllex)."
     exit 1
 fi
 
-AC_CHECK_PROG(MLYACC, mlyacc, yes, [])
+AC_PATH_PROG([MLYACC], [mlyacc], [])
 
-if test -z $MLYACC; then
+if test -z "$MLYACC"; then
     echo "You must install MLton (to get mlyacc)."
     exit 1
 fi
