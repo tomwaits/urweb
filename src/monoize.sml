@@ -1365,14 +1365,20 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                       nm), _),
             (L.CRecord (_, unique), _)) =>
             let
-                val unique = (nm, t) :: unique
+                (* The grammar (urweb.grm tnames') yields the last-written key
+                 * column as `nm` and the rest as `unique` in source order, so
+                 * append `nm` to keep the emitted key in the declared column
+                 * order -- prepending reversed it (urweb/urweb#228). *)
+                val unique = unique @ [(nm, t)]
                 val witnesses = (L'.TRecord (map (fn (nm, _) => (monoName env nm, (L'.TRecord [], loc))) unique), loc)
             in
                 ((L'.EAbs ("_", witnesses, (L'.TFfi ("Basis", "string"), loc),
                            (str
                                 (String.concatWith ", "
-                                                   (map (fn (x, _) =>
+                                                   (map (fn (x, t) =>
                                                             Settings.mangleSql (monoNameLc env x)
+                                                            (* test each column's OWN type for a length
+                                                             * prefix, not the pivot column's (#261). *)
                                                             ^ (if #textKeysNeedLengths (Settings.currentDbms ())
                                                                   andalso isBlobby t then
                                                                    "(255)"
@@ -1412,7 +1418,9 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                       nm), _),
             (L.CRecord (_, unique), _)) =>
             let
-                val unique = (nm, t) :: unique
+                (* Append the last-written column `nm` to preserve declared
+                 * column order in the emitted key (urweb/urweb#228). *)
+                val unique = unique @ [(nm, t)]
             in
                 (str ("UNIQUE ("
                       ^ String.concatWith ", "
