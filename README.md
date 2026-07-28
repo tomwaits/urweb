@@ -1,10 +1,10 @@
-[![CI](https://github.com/tomwaits/urweb/actions/workflows/ci.yml/badge.svg?branch=pidmint%2Fmain)](https://github.com/tomwaits/urweb/actions/workflows/ci.yml)
+[![CI](https://github.com/tomwaits/urweb/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/tomwaits/urweb/actions/workflows/ci.yml)
 
 # The Ur/Web Programming Language
 
 > **About this fork:** this is a maintained fork of
-> [urweb/urweb](https://github.com/urweb/urweb). The `master` branch mirrors
-> upstream (currently `55a881f`, 2024-03); the default `pidmint/main` branch
+> [urweb/urweb](https://github.com/urweb/urweb). `master` builds on upstream
+> master as of 2024-03 (tag `upstream-master-20240308`, commit `55a881f`) and
 > additionally carries build fixes and correctness patches, many harvested from
 > long-open upstream pull requests (each merge commit names its source PR).
 > Fixes authored here are also offered upstream. License and copyright are
@@ -74,11 +74,12 @@ environment.
 ## Distribution Packages (a word of caution)
 
 Ur/Web is **no longer packaged in current Debian and Ubuntu releases**
-(`apt-get install urweb` will not work; the package was dropped when its
-build dependencies became unsatisfiable on several architectures). The
-Homebrew formula installs the 20200209 release, which no longer matches
-current `demo/` sources and predates the fixes on this branch — prefer the
-Nix or source builds above.
+(`apt-get install urweb` will not work; see
+[urweb/urweb#268](https://github.com/urweb/urweb/issues/268) for the
+packaging history). The Homebrew formula installs a 2020-era release
+(20200209 at the time of writing), which no longer matches current `demo/`
+sources and predates the fixes on this branch — prefer the Nix or source
+builds above.
 
 # For More Detail
 

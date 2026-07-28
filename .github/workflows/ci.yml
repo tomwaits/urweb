@@ -4,10 +4,15 @@ on:
   push:
     branches:
       - master
-      - pidmint/main
-      - 'pidmint/**'
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   nix-build-and-test:
@@ -25,5 +30,11 @@ jobs:
       - name: Build and test
         run: nix-build
 
+      # Compile a real app with the INSTALLED compiler, outside the build
+      # sandbox: this exercises the CC/CCARGS/ICU paths baked into
+      # config.sml, which `make test` inside the sandbox cannot see
+      # (the cc-wrapper environment masks missing flags there).
       - name: Smoke-check installed compiler
-        run: result/bin/urweb -version
+        run: |
+          result/bin/urweb -version
+          result/bin/urweb demo/hello
