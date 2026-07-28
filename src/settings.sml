@@ -533,9 +533,15 @@ val validMime = CharVector.all (fn ch => Char.isAlphaNum ch orelse ch = #"/" ore
 val validEnv = CharVector.all (fn ch => Char.isAlphaNum ch orelse ch = #"_" orelse ch = #".")
 val validMeta = CharVector.all (fn ch => Char.isAlpha ch orelse ch = #"-")
 
+(* An HTTP header field name is an RFC 7230 "token"; in particular '/' (which
+ * validMime allows) is not a legal header-name character.  Keep this in sync
+ * with header_format() in src/c/urweb.c.  See urweb/urweb#271. *)
+val validHeader = CharVector.all (fn ch => Char.isAlphaNum ch
+                                           orelse Char.contains "!#$%&'*+-.^_`|~" ch)
+
 val checkMime = check validMime mime
-val checkRequestHeader = check validMime request
-val checkResponseHeader = check validMime response
+val checkRequestHeader = check validHeader request
+val checkResponseHeader = check validHeader response
 val checkEnvVar = check validEnv env
 val checkMeta = check validMeta meta
 

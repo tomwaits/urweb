@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out
+	rm -f tests/dce.exe tests/dce.out tests/hdrtok.exe tests/hdrbad.exe
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -157,6 +157,24 @@ check-local: test
 
 test: demo/demo.exe tests/dce.exe
 	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
+	@# The header-name charset check runs in mono_opt, which a full -boot
+	@# compile reaches. For hdrbad (a name that must be REJECTED) the verdict is
+	@# whether the charset error ("Invalid string ... passed to 'bless*Header'")
+	@# appears, NOT the exit code -- the rejected compile never links. For
+	@# hdrtok (a name that must be ACCEPTED) we require BOTH the absence of that
+	@# error AND a produced executable, so an unrelated compile failure can't
+	@# make it pass vacuously. The wildcard allow-rules in the .urp files make
+	@# the rule-list half of the check always pass, isolating the character
+	@# check as the only possible source of that error. See urweb/urweb#271.
+	@out=`bin/urweb -boot -noEmacs tests/hdrbad 2>&1`; \
+	echo "$$out" | grep -q "Invalid string" \
+	  || { echo "Test 'hdrbad' failed: blessRequestHeader accepted a name containing '/' (urweb/urweb#271). Compiler output:"; echo "$$out"; false; }
+	@rm -f tests/hdrtok.exe; out=`bin/urweb -boot -noEmacs tests/hdrtok 2>&1`; \
+	if echo "$$out" | grep -q "Invalid string"; then \
+	  echo "Test 'hdrtok' failed: a valid RFC 7230 header-name character ('_') was rejected (urweb/urweb#271). Compiler output:"; echo "$$out"; false; \
+	elif test ! -x tests/hdrtok.exe; then \
+	  echo "Test 'hdrtok' failed: did not compile to an executable, so '_' acceptance was not exercised (urweb/urweb#271). Compiler output:"; echo "$$out"; false; \
+	fi
 	rm -f $(TESTDB)
 	sqlite3 $(TESTDB) < demo/demo.sql
 	demo/demo.exe -q -a 127.0.0.1 & echo $$! > $(TESTPID)
