@@ -553,7 +553,7 @@ val consEqSimple =
                   | (CName x1, CName x2) => x1 = x2
                   | (CRecord (_, xts1), CRecord (_, xts2)) =>
                     ListPair.all (fn ((x1, t1), (x2, t2)) =>
-                                     ces env (x1, x2) andalso ces env (t2, t2)) (xts1, xts2)
+                                     ces env (x1, x2) andalso ces env (t1, t2)) (xts1, xts2)
                   | (CConcat (x1, y1), CConcat (x2, y2)) =>
                     ces env (x1, x2) andalso ces env (y1, y2)
                   | (CMap _, CMap _) => true
