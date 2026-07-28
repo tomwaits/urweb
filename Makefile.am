@@ -156,6 +156,7 @@ tests/dce.exe: bin/urweb | demo/demo.exe
 check-local: test
 
 test: demo/demo.exe tests/dce.exe
+	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
 	rm -f $(TESTDB)
 	sqlite3 $(TESTDB) < demo/demo.sql
 	demo/demo.exe -q -a 127.0.0.1 & echo $$! > $(TESTPID)

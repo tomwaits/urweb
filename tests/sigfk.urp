@@ -1,0 +1,4 @@
+dbms sqlite
+database dbname=sigfk
+
+sigfk
