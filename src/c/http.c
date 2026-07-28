@@ -107,7 +107,8 @@ static void *worker(void *data) {
       int r;
       char *method, *path, *query_string, *headers, *body, *after, *s, *s2;
 
-      if (back - buf == buf_size - 1) {
+      size_t backbuf = back - buf;
+      if (backbuf == buf_size - 1) {
         char *new_buf;
         size_t new_buf_size = buf_size*2;
         if (new_buf_size > max_buf_size) {
@@ -124,7 +125,7 @@ static void *worker(void *data) {
           break;
         }
         buf_size = new_buf_size;
-        back = new_buf + (back - buf);
+        back = new_buf + backbuf;
         buf = new_buf;
       }
 
@@ -178,6 +179,9 @@ static void *worker(void *data) {
                 sock = 0;
                 break;
               }
+              size_t backbuf = back - buf;
+              size_t bodybuf = body - buf;
+              size_t sbuf = s - buf;
               new_buf = realloc(buf, new_buf_size);
               if(!new_buf) {
                 qfprintf(stderr, "Realloc failed while receiving content\n");
@@ -187,9 +191,9 @@ static void *worker(void *data) {
               }
 
               buf_size = new_buf_size;
-              back = new_buf + (back - buf);
-              body = new_buf + (body - buf);
-              s = new_buf + (s - buf);
+              back = new_buf + backbuf;
+              body = new_buf + bodybuf;
+              s = new_buf + sbuf;
 
               buf = new_buf;
             }
