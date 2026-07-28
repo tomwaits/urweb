@@ -2790,9 +2790,23 @@ fun elabSgn_item ((sgi, loc), (env, denv, gs)) =
              checkCon env' pe' pet pst;
              checkCon env' ce' cet cst;
 
-             ([(L'.SgiConAbs (x', hidden_n, cstK), loc),
-               (L'.SgiConstraint ((L'.CConcat (pkey, visible), loc), hidden), loc),
-               (L'.SgiVal (x, n, ct), loc)], (env', denv, gs''' @ gs'' @ gs' @ gs))
+             let
+                 (* The emitted SgiConstraint below records that the primary
+                  * key and visible unique keys are disjoint from this table's
+                  * hidden constraints; assert it into denv (as L.SgiConstraint
+                  * does for an explicit constraint) so later items in this
+                  * signature -- e.g. a foreign key in another table
+                  * referencing this one's #Pkey -- can discharge the resulting
+                  * obligation. This must run AFTER the checkCon calls above:
+                  * they resolve the `pkey`/`visible` unification variables to
+                  * concrete name records, and Disjoint.assert drops pieces
+                  * that are still unresolved unifvars. See urweb/urweb#267. *)
+                 val denv' = D.assert env' denv ((L'.CConcat (pkey, visible), loc), hidden)
+             in
+                 ([(L'.SgiConAbs (x', hidden_n, cstK), loc),
+                   (L'.SgiConstraint ((L'.CConcat (pkey, visible), loc), hidden), loc),
+                   (L'.SgiVal (x, n, ct), loc)], (env', denv', gs''' @ gs'' @ gs' @ gs))
+             end
          end
 
        | L.SgiStr (x, sgn) =>
