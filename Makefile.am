@@ -29,6 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
+	rm -f tests/dce.exe tests/dce.out
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -126,7 +127,7 @@ EXTRA_DIST = demo/prose demo/*.urs demo/*.ur demo/*.urp demo/more/prose demo/mor
 	doc/Makefile doc/*.tex doc/*.ur doc/LICENSE lib/js \
 	lib/ur/*.urs lib/ur/*.ur xml/parse.sml xml/*.ent \
 	src/coq src/*.sig src/*.sml src/*.mlb src/config.sml.in src/elisp src/*.cm src/sources src/*.grm src/*.lex \
-	CHANGELOG LICENSE urweb.ebuild include/urweb/*.h tests/*.html
+	CHANGELOG LICENSE urweb.ebuild include/urweb/*.h tests/*.html tests/*.ur tests/*.urp
 
 dist-hook:
 	cd src; rm -f urweb.mlton.lex urweb.mlton.grm *.lex.* *.grm.*
@@ -147,16 +148,24 @@ demo/demo.exe: bin/urweb
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
 	bin/urweb -boot -noEmacs -dbms sqlite -db $(TESTDB) -demo /Demo demo
 
+tests/dce.exe: bin/urweb | demo/demo.exe
+	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
+	bin/urweb -boot -noEmacs tests/dce
+
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
 
-test: demo/demo.exe
+test: demo/demo.exe tests/dce.exe
 	rm -f $(TESTDB)
 	sqlite3 $(TESTDB) < demo/demo.sql
 	demo/demo.exe -q -a 127.0.0.1 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -s 'http://localhost:8080/Demo/Hello/main' | diff tests/hello.html -) || (kill `cat $(TESTPID)`; echo "Test 'Hello' failed"; /bin/false)
 	(curl -s 'http://localhost:8080/Demo/Crud1/create?A=1&B=2&C=3&D=4' | diff tests/crud1.html -) || (kill `cat $(TESTPID)`; echo "Test 'Crud1' failed"; /bin/false)
+	kill `cat $(TESTPID)`
+	tests/dce.exe -q -a 127.0.0.1 -p 8081 & echo $$! > $(TESTPID)
+	sleep 1
+	(curl -s 'http://localhost:8081/Dce/main' > tests/dce.out && grep -q 'Do not eliminate me' tests/dce.out && ! grep -q 'Hello, DCE!' tests/dce.out) || (kill `cat $(TESTPID)`; echo "Test 'dce' failed: branch-selected error call was eliminated (urweb/urweb#221)"; false)
 	kill `cat $(TESTPID)`
 	if (ifconfig lo | grep -q inet6); \
 	then \

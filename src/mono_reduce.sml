@@ -83,6 +83,19 @@ fun simpleImpure isGlobal (tsyms, syms) =
                                  U.Exp.RelE (x, t) => E.pushERel env x t NONE
                                | _ => env}
 
+(* Aborts (error and friends) are effects that dead-code elimination must not
+ * discard, but simpleImpure must not report them: it also feeds the global
+ * impure-symbol fixpoint, where flagging every function that can call "error"
+ * would pessimize inlining program-wide.  Tracked separately and OR'd in only
+ * at the local keep-this-binding check.  See urweb/urweb#221. *)
+val existsAbort = U.Exp.exists {typ = fn _ => false,
+                                exp = fn e =>
+                                         case e of
+                                             EError _ => true
+                                           | EReturnBlob _ => true
+                                           | ERedirect _ => true
+                                           | _ => false}
+
 fun impure (e, _) =
     case e of
         EWrite _ => true
@@ -113,9 +126,11 @@ fun impure (e, _) =
       | ECase (e, pes, _) => impure e orelse List.exists (fn (_, e) => impure e) pes
 
       | EError _ => true
-      | EReturnBlob {blob = NONE, mimeType = e2, ...} => impure e2
-      | EReturnBlob {blob = SOME e1, mimeType = e2, ...} => impure e1 orelse impure e2
-      | ERedirect (e, _) => impure e
+      (* returnBlob and redirect abort the enclosing request handler, just as
+       * error does, so they are effects regardless of their arguments --
+       * summarize agrees, giving all three [Abort]. *)
+      | EReturnBlob _ => true
+      | ERedirect _ => true
 
       | EStrcat (e1, e2) => impure e1 orelse impure e2
 
@@ -559,7 +574,8 @@ fun reduce' (file : file) =
             end
 
         val impure = fn env => fn e =>
-                        simpleImpure false (timpures, impures) env e andalso impure e
+                        (simpleImpure false (timpures, impures) env e orelse existsAbort e)
+                        andalso impure e
                         andalso not (List.null (summarize ~1 e))
 
         fun passive (e : exp) =
