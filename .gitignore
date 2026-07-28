@@ -88,3 +88,4 @@ result
 # macos
 .DS_Store
 tests/dce.out
+tests/pkeyorder.sql

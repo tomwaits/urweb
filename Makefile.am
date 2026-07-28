@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/hdrtok.exe tests/hdrbad.exe
+	rm -f tests/dce.exe tests/dce.out tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -171,6 +171,20 @@ test: demo/demo.exe tests/dce.exe
 	  bin/urweb -tc -boot -noEmacs tests/$$t \
 	    || { echo "Query fixture '$$t' failed to typecheck -- SQL-DSL regression guard"; exit 1; }; \
 	done
+	@# Composite-key column-order guard (urweb/urweb#228/#261): a multi-column
+	@# PRIMARY KEY / UNIQUE must emit its columns in DECLARED order. pkeyorder's
+	@# key order (Bb,Aa)/(Cc,Aa) differs from any alphabetical reordering, so the
+	@# order is observable in the generated Postgres DDL. Newlines are flattened
+	@# so the column-order check is layout-independent.
+	@rm -f tests/pkeyorder.sql
+	bin/urweb -boot -noEmacs -dbms postgres -sql tests/pkeyorder.sql tests/pkeyorder \
+	  || { echo "Test 'pkeyorder' failed to compile"; false; }
+	@echo "--- emitted key DDL (pkeyorder) ---"; grep -iE 'PRIMARY KEY|UNIQUE' tests/pkeyorder.sql || true
+	@flat=`tr -d '\n' < tests/pkeyorder.sql`; \
+	echo "$$flat" | grep -iqE 'PRIMARY KEY[^)]*bb[^)]*aa' \
+	  || { echo "Test 'pkeyorder' failed: PRIMARY KEY columns not in declared order (Bb, Aa) -- urweb/urweb#228"; false; }; \
+	echo "$$flat" | grep -iqE 'UNIQUE[^)]*cc[^)]*aa' \
+	  || { echo "Test 'pkeyorder' failed: UNIQUE columns not in declared order (Cc, Aa) -- urweb/urweb#228"; false; }
 	@# The header-name charset check runs in mono_opt, which a full -boot
 	@# compile reaches. For hdrbad (a name that must be REJECTED) the verdict is
 	@# whether the charset error ("Invalid string ... passed to 'bless*Header'")
