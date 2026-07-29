@@ -48,6 +48,34 @@ jobs:
           result/bin/urweb -version
           result/bin/urweb demo/hello
 
+      # PR (#44): -staticRuntime links the Ur/Web runtime (liburweb.a)
+      # statically while leaving system libraries (libc, libpq, ...) dynamic --
+      # a portable single binary without the full-static glibc/NSS pain. pidmint
+      # ships installed-compiler binaries, so this INSTALLED path (not -boot's
+      # build-tree path) is the one that matters. ldd distinguishes the two:
+      # the default dynamic link carries a liburweb.so dependency, -staticRuntime
+      # does not.
+      - name: -staticRuntime links liburweb statically, system libs dynamic (#44)
+        run: |
+          set -uo pipefail
+          # Baseline (default dynamic link) was just produced above.
+          echo "=== ldd, default dynamic link ==="; ldd demo/hello.exe || true
+          # Vacuity guard: the default build MUST depend on a dynamic liburweb,
+          # otherwise the -staticRuntime assertion below would prove nothing.
+          ldd demo/hello.exe | grep -qi 'liburweb' \
+            || { echo "staticRuntime test is VACUOUS: default build has no dynamic liburweb to remove (#44)"; exit 1; }
+          # Recompile the SAME app with -staticRuntime and re-inspect.
+          result/bin/urweb -staticRuntime demo/hello
+          echo "=== ldd, -staticRuntime ==="; ldd demo/hello.exe || true
+          if ldd demo/hello.exe | grep -qi 'liburweb'; then
+            echo "staticRuntime FAILED: binary still has a dynamic liburweb dependency (#44)"; exit 1
+          fi
+          # It must remain dynamically linked against system libs (a portable
+          # binary), not silently promoted to a fully static executable.
+          ldd demo/hello.exe | grep -qi 'libc\.' \
+            || { echo "staticRuntime FAILED: expected dynamic libc, got a non-dynamic binary (#44)"; exit 1; }
+          echo "staticRuntime: PASS (liburweb static; system libs dynamic)"
+
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
   # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
   # the startup schema-structure check (#230), timestamp handling (#163), the
