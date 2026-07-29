@@ -1,12 +1,18 @@
-(* DIAG: probe ofUnicode directly on astral codepoints (constants) plus the
- * surrogate arithmetic, to locate where U+1F600 turns into "U". *)
-val a1 = ofUnicode 0x1F600
-val a3 = ofUnicode (0x10000 + (0xD83D - 0xD800) * 0x400 + (0xDE00 - 0xDC00))
-val a4 = ofUnicode 0x55
-val decoded : string = Json.fromJson "\"\\uD83D\\uDE00\""
+(* DIAG: compare fromJson of a COMPILE-TIME CONSTANT literal vs a RUNTIME-built
+ * string (prefixed with an always-"" value the compiler can't fold away).
+ * If const decodes to "U" but runtime decodes to 4 bytes, urweb is mis-folding
+ * the recursive unescape at compile time (a pre-existing optimizer bug), and
+ * the #211 fix is correct at runtime. *)
+val decodedConst : string = Json.fromJson "\"\\uD83D\\uDE00\""
 
 fun main () : transaction page =
-    return <xml><body>
-      <p>a1={[strlenUtf8 a1]}/{[strlen a1]} a3={[strlenUtf8 a3]}/{[strlen a3]} a4={[strlenUtf8 a4]}/{[strlen a4]}</p>
-      <p>dec={[strlenUtf8 decoded]}/{[strlen decoded]} raw=[{[decoded]}]</p>
-    </body></xml>
+    t <- now;
+    let
+        val pfx = if toSeconds t < 0 then "x" else ""
+        val decodedRT : string = Json.fromJson (pfx ^ "\"\\uD83D\\uDE00\"")
+    in
+        return <xml><body>
+          <p>CONST bytes={[strlenUtf8 decodedConst]} cp={[strlen decodedConst]}</p>
+          <p>RUNTIME bytes={[strlenUtf8 decodedRT]} cp={[strlen decodedRT]} {[if strlenUtf8 decodedRT = 4 && strlen decodedRT = 1 then "SURROGATE_PAIR_OK" else "SURROGATE_PAIR_BAD"]}</p>
+        </body></xml>
+    end
