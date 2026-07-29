@@ -255,6 +255,10 @@ signature SETTINGS = sig
     val setStaticLinking : bool -> unit
     val getStaticLinking : unit -> bool
 
+    (* Statically link liburweb but dynamically link system libraries. *)
+    val setStaticRuntimeLinking : bool -> unit
+    val getStaticRuntimeLinking : unit -> bool
+
     val setBootLinking : bool -> unit
     val getBootLinking : unit -> bool
 

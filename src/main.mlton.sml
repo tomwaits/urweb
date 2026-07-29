@@ -223,6 +223,8 @@ fun oneRun args =
                     SOME "output exposed URL endpoints in JSON as <file>"),
               ("static", call_true Settings.setStaticLinking,
                     SOME "enable static linking"),
+              ("staticRuntime", call_true Settings.setStaticRuntimeLinking,
+                    SOME "statically link liburweb but dynamically link system libraries"),
               ("stop", ONE ("<phase>", Compiler.setStop),
                     SOME "stop compilation after <phase>"),
               ("path", TWO ("<name>", "<path>", Compiler.addPath),

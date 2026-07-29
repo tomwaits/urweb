@@ -380,6 +380,8 @@ fastcgi.server = (
 
 \item \texttt{-static}: Link the runtime system statically.  The default is to link against dynamic libraries.
 
+\item \texttt{-staticRuntime}: Link the Ur/Web runtime (\texttt{liburweb}) statically while leaving system libraries (\texttt{libc}, the database client, OpenSSL, ICU) dynamic.  This produces a portable executable that carries the runtime without the deployment fragility of a fully static \texttt{-static} binary (which statically links glibc, and with it NSS/\texttt{dlopen}).  It requires the static archive \texttt{liburweb.a} to be installed (present unless the build was configured with \texttt{-{}-disable-static}).  If both \texttt{-static} and \texttt{-staticRuntime} are given, \texttt{-static} takes precedence.
+
 \item \texttt{-stop PHASE}: Stop compilation after the named phase, printing the intermediate program to stderr.  This flag is mainly useful for debugging the Ur/Web compiler itself.
 \end{itemize}
 

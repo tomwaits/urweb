@@ -735,6 +735,13 @@ val staticLinking = ref false
 fun setStaticLinking b = staticLinking := b
 fun getStaticLinking () = !staticLinking
 
+(* Like boot linking (static liburweb, dynamic system libs) but for an
+ * installed compiler: a portable binary that carries the Ur/Web runtime
+ * without the full-static (-static) glibc/NSS pain. *)
+val staticRuntimeLinking = ref false
+fun setStaticRuntimeLinking b = staticRuntimeLinking := b
+fun getStaticRuntimeLinking () = !staticRuntimeLinking
+
 val bootLinking = ref false
 fun setBootLinking b = bootLinking := b
 fun getBootLinking () = !bootLinking
