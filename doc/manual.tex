@@ -632,6 +632,8 @@ A tuple type $\tau_1 \times \ldots \times \tau_n$ expands to a record type $\{1 
 
 The syntax $()$ expands to $\{\}$ as a pattern or expression.
 
+The guarded type $[c \sim c] \Rightarrow \tau$ may equivalently be written $[c \sim c] \to \tau$, for consistency with the $\to$ used elsewhere to write the type of a $\Rightarrow$-abstraction.
+
 In general, several adjacent $\lambda$ forms may be combined into one, and kind and type annotations may be omitted, in which case they are implicitly included as wildcards.  More formally, for constructor-level abstractions, we can define a new non-terminal $b ::= x \mid (x :: \kappa) \mid X$ and allow composite abstractions of the form $\lambda b^+ \Rightarrow c$, elaborating into the obvious sequence of one core $\lambda$ per element of $b^+$.
 
 Further, the signature item or declaration syntax $\mt{con} \; x \; b^+ = c$ is shorthand for wrapping of the appropriate $\lambda$s around the righthand side $c$.  The $b$ elements may not include $X$, and there may also be an optional $:: \kappa$ before the $=$.

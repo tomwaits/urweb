@@ -1051,6 +1051,7 @@ cexp   : capps                          (capps)
 
        | FN cargs DARROW cexp           (#1 (cargs (cexp, (KWild, s (FNleft, cexpright)))))
        | LBRACK cexp TWIDDLE cexp RBRACK DARROW cexp (TDisjoint (cexp1, cexp2, cexp3), s (LBRACKleft, cexp3right))
+       | LBRACK cexp TWIDDLE cexp RBRACK ARROW cexp (TDisjoint (cexp1, cexp2, cexp3), s (LBRACKleft, cexp3right))
        | CSYMBOL DKARROW cexp           (CKAbs (CSYMBOL, cexp), s (CSYMBOLleft, cexpright))
 
        | LPAREN cexp RPAREN DCOLON kind (CAnnot (cexp, kind), s (LPARENleft, kindright))
