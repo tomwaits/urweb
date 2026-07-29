@@ -1,0 +1,6 @@
+rewrite url Jsonsurrogate/main
+
+$/char
+$/string
+$/json
+jsonsurrogate
