@@ -1609,7 +1609,11 @@ fun compileC {cname, oname, ename, libs, profile, debug, linker, link = link'} =
     let
         val proto = Settings.currentProtocol ()
 
-        val lib = if Settings.getBootLinking () then
+        (* Boot linking and -staticRuntime share a link line: static
+         * liburweb.a plus dynamically linked system libraries. They differ
+         * only in which configLib is in force -- the build tree under -boot,
+         * the install prefix for an installed -staticRuntime compiler. *)
+        val lib = if Settings.getBootLinking () orelse Settings.getStaticRuntimeLinking () then
                       !Settings.configLib ^ "/" ^ #linkStatic proto ^ " " ^
                       !Settings.configLib ^ "/liburweb.a " ^
                       !Settings.configIcuLibs ^ " -licui18n -licuuc -licudata -licuio"
