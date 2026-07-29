@@ -262,6 +262,10 @@ signature SETTINGS = sig
     val setBootLinking : bool -> unit
     val getBootLinking : unit -> bool
 
+    (* C-compiler optimization flags for the generated .c (default "-O3"). *)
+    val setCCompileOpt : string -> unit
+    val getCCompileOpt : unit -> string
+
     val setDeadlines : bool -> unit
     val getDeadlines : unit -> bool
 
