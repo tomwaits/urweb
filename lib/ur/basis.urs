@@ -906,6 +906,7 @@ val span : bodyTag boxAttrs
 val div : bodyTag boxAttrs
 
 val p : bodyTag boxAttrs
+val blockquote : bodyTag boxAttrs
 val strong : bodyTag boxAttrs
 val em : bodyTag boxAttrs
 val b : bodyTag boxAttrs
