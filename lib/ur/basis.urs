@@ -223,7 +223,9 @@ val setHeader : responseHeader -> string -> transaction unit
 
 (* Set the HTTP response status code (e.g. 401, 403, 404, 429). Meaningful on
  * the normal page path; the standalone server writes a real status line, while
- * CGI/FastCGI emit a Status: header. The code must be in [100, 599]. *)
+ * CGI/FastCGI emit a Status: header. The code must be in [100, 599]. A later
+ * redirect (303) or returnBlob (200) in the same handler resets the response
+ * headers and therefore overrides a status set here. *)
 val setResponseStatus : int -> transaction unit
 
 type envVar
