@@ -257,6 +257,7 @@ uw_Basis_string uw_Basis_checkMeta(struct uw_context *, uw_Basis_string);
 
 uw_Basis_string uw_Basis_getHeader(struct uw_context *, uw_Basis_string name);
 uw_unit uw_Basis_setHeader(struct uw_context *, uw_Basis_string name, uw_Basis_string value);
+uw_unit uw_Basis_setResponseStatus(struct uw_context *, uw_Basis_int code);
 uw_Basis_string uw_Basis_getenv(struct uw_context *, uw_Basis_string name);
 
 uw_Basis_string uw_unnull(uw_Basis_string);
