@@ -469,8 +469,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  uw_request_init(&uw_application, &ls);
-
   names = calloc(nthreads, sizeof(int));
 
   sockfd = socket(my_addr.sa.sa_family, SOCK_STREAM, 0); // do some error checking!
@@ -525,9 +523,11 @@ int main(int argc, char *argv[]) {
   // so the server keeps running after the launching shell exits, with
   // stdout/stderr redirected to <logfile>. This MUST happen here -- after
   // listen() (so bind/listen errors are still reported to the terminal) but
-  // BEFORE any worker or pruner thread is spawned: fork() carries only the
-  // calling thread into the child, so forking a multi-threaded process would
-  // strand the other threads.
+  // BEFORE uw_request_init and the pruner/worker threads below: fork() carries
+  // only the calling thread into the child, so any thread spawned before the
+  // fork (uw_request_init starts one per `task periodic`, plus the ticker) would
+  // be stranded in the parent and lost. uw_request_init is therefore deferred to
+  // just after this block, so its threads are created in the daemon child.
   if (logfile) {
     int logfd = open(logfile, O_WRONLY | O_CREAT | O_APPEND, 0644);
     pid_t pid;
@@ -535,6 +535,17 @@ int main(int argc, char *argv[]) {
     if (logfd < 0) {
       fprintf(stderr, "Cannot open log file '%s': %s\n", logfile, strerror(errno));
       return 1;
+    }
+
+    // If the log landed on a standard fd (server launched with stdin/stdout/
+    // stderr already closed), move it above them so the redirection below cannot
+    // clobber it.
+    if (logfd <= STDERR_FILENO) {
+      int hi = fcntl(logfd, F_DUPFD, STDERR_FILENO + 1);
+      if (hi >= 0) {
+        close(logfd);
+        logfd = hi;
+      }
     }
 
     // Flush any buffered output before forking so it is not duplicated into
@@ -574,6 +585,12 @@ int main(int argc, char *argv[]) {
     printf("Ur/Web daemon started (pid %ld).\n", (long)getpid());
     fflush(stdout);
   }
+
+  // Initialize the application and database and spawn the app's periodic/ticker
+  // threads. Deferred to AFTER the daemonize fork above so these threads live in
+  // the daemon child (fork carries only the calling thread); in non-daemon mode
+  // the block above is a no-op and this runs normally.
+  uw_request_init(&uw_application, &ls);
 
   {
     pthread_t thread;
