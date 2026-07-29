@@ -107,12 +107,6 @@ fun unescape s =
                             findEnd endChar (i+1) (String.suffix s 1)
                 end
 
-        fun hex4 s off =
-            unhex (String.sub s off) * 4096
-            + unhex (String.sub s (off+1)) * 256
-            + unhex (String.sub s (off+2)) * 16
-            + unhex (String.sub s (off+3))
-
         fun unesc last i s =
             if i >= last then
                 ""
@@ -129,34 +123,13 @@ fun unescape s =
                                 error <xml>JSON unescape: Unicode ends early</xml>
                             else
                                 let
-                                    val n = hex4 s 2
+                                    val n =
+                                        unhex (String.sub s 2) * (256*16)
+                                        + unhex (String.sub s 3) * 256
+                                        + unhex (String.sub s 4) * 16
+                                        + unhex (String.sub s 5)
                                 in
-                                    (* A \uXXXX escape encodes a UTF-16 code
-                                     * unit. Characters outside the BMP arrive
-                                     * as a surrogate PAIR (high \uD800-\uDBFF
-                                     * then low \uDC00-\uDFFF); decode the pair
-                                     * to one scalar value. A surrogate that is
-                                     * not part of a well-formed pair is invalid
-                                     * (and would otherwise be emitted as WTF-8,
-                                     * i.e. malformed UTF-8). *)
-                                    if n < 0xD800 || n > 0xDFFF then
-                                        ofUnicode n ^ unesc last (i+6) (String.suffix s 6)
-                                    else if n >= 0xDC00 then
-                                        error <xml>JSON unescape: unpaired low surrogate</xml>
-                                    else if not (strlenGe s 12) then
-                                        error <xml>JSON unescape: high surrogate not followed by a low surrogate</xml>
-                                    else if String.sub s 6 <> #"\\" || String.sub s 7 <> #"u" then
-                                        error <xml>JSON unescape: high surrogate not followed by a \u escape</xml>
-                                    else
-                                        let
-                                            val n2 = hex4 s 8
-                                        in
-                                            if n2 < 0xDC00 || n2 > 0xDFFF then
-                                                error <xml>JSON unescape: high surrogate not followed by a low surrogate</xml>
-                                            else
-                                                ofUnicode (0x10000 + (n - 0xD800) * 0x400 + (n2 - 0xDC00))
-                                                ^ unesc last (i+12) (String.suffix s 12)
-                                        end
+                                    ofUnicode n ^ unesc last (i+6) (String.suffix s 6)
                                 end
                         else
 			    (case String.sub s 1 of

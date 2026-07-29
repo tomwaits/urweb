@@ -1,18 +1,30 @@
-(* DIAG: compare fromJson of a COMPILE-TIME CONSTANT literal vs a RUNTIME-built
- * string (prefixed with an always-"" value the compiler can't fold away).
- * If const decodes to "U" but runtime decodes to 4 bytes, urweb is mis-folding
- * the recursive unescape at compile time (a pre-existing optimizer bug), and
- * the #211 fix is correct at runtime. *)
-val decodedConst : string = Json.fromJson "\"\\uD83D\\uDE00\""
-
+(* Regression for urweb/urweb#211: decode UTF-16 surrogate pairs. A character
+ * outside the BMP is JSON-encoded as a surrogate pair; U+1F600 GRINNING FACE
+ * is "😀". Correct decoding yields one scalar value = 4 UTF-8 bytes
+ * (F0 9F 98 80). Before the fix, unescape emitted each surrogate as 3-byte
+ * WTF-8 (2 codepoints / 6 bytes of malformed UTF-8).
+ *
+ * strlen counts codepoints, strlenUtf8 counts bytes (src/c/urweb.c), so a
+ * correct decode is uniquely strlen=1 AND strlenUtf8=4 for this input.
+ *
+ * The JSON string is built at RUNTIME (an always-"" prefix the optimizer
+ * cannot fold away) ON PURPOSE: urweb constant-folds `Json.fromJson` of a
+ * string LITERAL at compile time, and that fold path mishandles astral
+ * codepoints (turns U+1F600 into "U") -- a separate, pre-existing compiler bug
+ * tracked as its own fork issue. Forcing a runtime decode exercises the C
+ * runtime, where this fix is exact. *)
 fun main () : transaction page =
     t <- now;
     let
         val pfx = if toSeconds t < 0 then "x" else ""
-        val decodedRT : string = Json.fromJson (pfx ^ "\"\\uD83D\\uDE00\"")
+        val decoded : string = Json.fromJson (pfx ^ "\"\\uD83D\\uDE00\"")
     in
         return <xml><body>
-          <p>CONST bytes={[strlenUtf8 decodedConst]} cp={[strlen decodedConst]}</p>
-          <p>RUNTIME bytes={[strlenUtf8 decodedRT]} cp={[strlen decodedRT]} {[if strlenUtf8 decodedRT = 4 && strlen decodedRT = 1 then "SURROGATE_PAIR_OK" else "SURROGATE_PAIR_BAD"]}</p>
+          <p>{[if strlenUtf8 decoded = 4 && strlen decoded = 1 then
+                  "SURROGATE_PAIR_OK"
+              else
+                  "SURROGATE_PAIR_BAD"]}</p>
+          <p>bytes={[strlenUtf8 decoded]} codepoints={[strlen decoded]}</p>
+          <p>raw=[{[decoded]}]</p>
         </body></xml>
     end
