@@ -1002,9 +1002,12 @@ con formTag = fn (ty :: Type) (inner :: {Unit}) (attrs :: {Type}) =>
                         nm :: Name -> unit
                         -> tag attrs ([Form] ++ ctx) inner [] [nm = ty]
 
-con inputAttrs' = [Required = bool, Autofocus = bool,
+con inputAttrs' = [Required = bool, Autofocus = bool, Disabled = bool,
                    Onchange = transaction unit]
-con inputAttrs = inputAttrs' ++ [Oninput = transaction unit]
+con inputAttrs = inputAttrs' ++ [Oninput = transaction unit,
+                                 Autocomplete = string, Pattern = string,
+                                 Minlength = int, Maxlength = int,
+                                 Readonly = bool]
 
 val hidden : formTag string [] [Data = data_attr, Id = string, Value = string]
 val textbox : formTag string [] ([Value = string, Size = int, Placeholder = string, Source = source string] ++ boxAttrs ++ inputAttrs)
