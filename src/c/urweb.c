@@ -265,6 +265,15 @@ static client *find_client(unsigned id) {
 static char *on_success = "HTTP/1.1 200 OK\r\n";
 static char *on_redirect = "HTTP/1.1 303 See Other\r\n";
 
+// The canonical "can this backend write a raw HTTP/1.1 status line, or must it
+// use a CGI-style Status: header?" discriminator (http=1; cgi/fastcgi/static=0),
+// declared in include/urweb/urweb_cpp.h, which this file does not include. Use it
+// for the status-line decision instead of the on_success[0] proxy: the two agree
+// for http/cgi/fastcgi but diverge for the static backend, which never calls
+// uw_set_on_success (so on_success[0] stays 'H' while direct_status is 0). The
+// generated code already keys 404/304 on this same flag (see cjr_print.sml).
+extern int uw_supports_direct_status;
+
 void uw_set_on_success(char *s) {
   on_success = s;
 }
@@ -3641,11 +3650,12 @@ static const char *uw_status_reason(uw_Basis_int n) {
 }
 
 // Set the HTTP response status code (urweb/urweb#222). Edits the status line in
-// place inside ctx->outHeaders, using the same on_success[0] discriminator that
-// uw_redirect and the 500 path already use to tell backends apart: the
-// standalone HTTP server writes a real "HTTP/1.1 200 OK" line (via its
-// on_success callback, before the handler runs), which we rewrite; CGI/FastCGI
-// emit no status line on success, so we insert a "Status:" header. Repeat calls
+// place inside ctx->outHeaders, using the same uw_supports_direct_status
+// discriminator that uw_redirect and the 500 path use to tell backends apart
+// (unified in urweb/urweb#35): the standalone HTTP server writes a real
+// "HTTP/1.1 200 OK" line (via its on_success callback, before the handler runs),
+// which we rewrite; CGI/FastCGI emit no status line on success, so we insert a
+// "Status:" header. Repeat calls
 // replace the line (last wins). Stateless — it works purely on the header
 // buffer, so it composes with the request retry loop (which resets outHeaders).
 uw_unit uw_Basis_setResponseStatus(uw_context ctx, uw_Basis_int n) {
@@ -3658,7 +3668,7 @@ uw_unit uw_Basis_setResponseStatus(uw_context ctx, uw_Basis_int n) {
   if (n < 100 || n > 599)
     uw_error(ctx, FATAL, "setResponseStatus: HTTP status code %lld out of range [100, 599]", n);
 
-  prefix = on_success[0] ? "HTTP/1.1 " : "Status: ";
+  prefix = uw_supports_direct_status ? "HTTP/1.1 " : "Status: ";
   reason = uw_status_reason(n);
 
   line_len = snprintf(line, sizeof line, "%s%lld %s\r\n", prefix, n, reason);
@@ -4480,11 +4490,11 @@ __attribute__((noreturn)) void uw_redirect(uw_context ctx, uw_Basis_string url) 
   ctx->page.start[uw_buffer_used(&ctx->outHeaders)] = 0;
   uw_buffer_reset(&ctx->outHeaders);
 
-  if (on_success[0])
+  if (uw_supports_direct_status)
     uw_write_header(ctx, on_redirect);
   else
     uw_write_header(ctx, "Status: 303 See Other\r\n");
-  s = on_success[0] ? strchr(ctx->page.start, '\n') : ctx->page.start;
+  s = uw_supports_direct_status ? strchr(ctx->page.start, '\n') : ctx->page.start;
   if (s) {
     char *s2;
     if (s[0] == '\n') ++s;
@@ -4917,7 +4927,7 @@ failure_kind uw_begin_onError(uw_context ctx, char *msg) {
       uw_ensure_transaction(ctx);
 
       uw_buffer_reset(&ctx->outHeaders);
-      if (on_success[0])
+      if (uw_supports_direct_status)
         uw_write_header(ctx, "HTTP/1.1 ");
       else
         uw_write_header(ctx, "Status: ");
