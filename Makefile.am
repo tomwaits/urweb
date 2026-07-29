@@ -249,17 +249,22 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# to <logfile>, and the PARENT prints "Daemonized: pid <n>" and exits 0. We
 	@# run it in the FOREGROUND (no `&`): under -d a blocking invocation that
 	@# returns is itself proof the server detached. Then we curl the backgrounded
-	@# child (it must still serve), confirm the log file was written, and stop it
-	@# via the reported pid.
-	@echo "==> [http 5/5] daemon (-d detaches, logs, serves in background) — serving on :8087"
+	@# child (it must still serve), confirm the log file was written and that the
+	@# app's background `task periodic` still fires in the child, and stop it via
+	@# the reported pid.
+	@echo "==> [http 5/5] daemon (-d detaches, logs, serves + keeps its 'task periodic', in background) — serving on :8087"
 	@rm -f $(TESTDLOG) $(TESTDOUT)
-	tests/daemon.exe -q -a 127.0.0.1 -p 8087 -d $(TESTDLOG) > $(TESTDOUT) || (echo "Test 'daemon' failed: the server exited nonzero under -d instead of daemonizing"; false)
-	(grep -q 'Daemonized: pid' $(TESTDOUT)) || (echo "Test 'daemon' failed: parent did not report 'Daemonized: pid <n>' on stdout under -d"; false)
-	@sed -n 's/.*pid \([0-9][0-9]*\).*/\1/p' $(TESTDOUT) > $(TESTPID)
-	(test -s $(TESTPID)) || (echo "Test 'daemon' failed: could not parse the daemon pid from $(TESTDOUT)"; false)
+	tests/daemon.exe -a 127.0.0.1 -p 8087 -d $(TESTDLOG) > $(TESTDOUT) || (echo "Test 'daemon' failed: the server exited nonzero under -d instead of daemonizing"; false)
+	@sed -n 's/.*Daemonized: pid \([0-9][0-9]*\).*/\1/p' $(TESTDOUT) > $(TESTPID)
+	(test -s $(TESTPID)) || (echo "Test 'daemon' failed: parent did not report a parseable 'Daemonized: pid <n>' on stdout under -d"; false)
 	sleep 1
 	(curl -sf 'http://localhost:8087/Daemon/main' | grep -q 'DAEMON_ALIVE') || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: the detached daemon did not serve /Daemon/main in the background"; false)
 	(test -s $(TESTDLOG)) || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: -d log file $(TESTDLOG) was not written (stdout/stderr not redirected)"; false)
+	@# The app declares `task periodic` -> uw_request_init spawns a periodic thread
+	@# whose marker reaches the CHILD's redirected log ONLY if that thread lives in
+	@# the daemon child, i.e. only if the fork happens before uw_request_init runs.
+	@# This is the regression guard for the fork-must-precede-all-app-threads rule.
+	(grep -q 'PERIODIC_FIRED' $(TESTDLOG)) || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: the app's 'task periodic' did not run in the daemon child -- fork() stranded the periodic thread (uw_request_init must run AFTER the fork)"; false)
 	kill `cat $(TESTPID)`
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
