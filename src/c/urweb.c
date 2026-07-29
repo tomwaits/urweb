@@ -3600,6 +3600,98 @@ uw_unit uw_Basis_clear_cookie(uw_context ctx, uw_Basis_string prefix, uw_Basis_s
   return uw_unit_v;
 }
 
+// A reason phrase for the common status codes; a generic class phrase otherwise.
+// HTTP/CGI both allow any reason-phrase text, so unknown codes still emit a
+// well-formed status line with their numeric code.
+static const char *uw_status_reason(uw_Basis_int n) {
+  switch (n) {
+  case 200: return "OK";
+  case 201: return "Created";
+  case 202: return "Accepted";
+  case 204: return "No Content";
+  case 301: return "Moved Permanently";
+  case 302: return "Found";
+  case 303: return "See Other";
+  case 304: return "Not Modified";
+  case 307: return "Temporary Redirect";
+  case 308: return "Permanent Redirect";
+  case 400: return "Bad Request";
+  case 401: return "Unauthorized";
+  case 403: return "Forbidden";
+  case 404: return "Not Found";
+  case 405: return "Method Not Allowed";
+  case 406: return "Not Acceptable";
+  case 409: return "Conflict";
+  case 410: return "Gone";
+  case 415: return "Unsupported Media Type";
+  case 422: return "Unprocessable Entity";
+  case 429: return "Too Many Requests";
+  case 500: return "Internal Server Error";
+  case 501: return "Not Implemented";
+  case 502: return "Bad Gateway";
+  case 503: return "Service Unavailable";
+  case 504: return "Gateway Timeout";
+  default:
+    if (n < 200) return "Informational";
+    if (n < 300) return "OK";
+    if (n < 400) return "Redirection";
+    if (n < 500) return "Client Error";
+    return "Server Error";
+  }
+}
+
+// Set the HTTP response status code (urweb/urweb#222). Edits the status line in
+// place inside ctx->outHeaders, using the same on_success[0] discriminator that
+// uw_redirect and the 500 path already use to tell backends apart: the
+// standalone HTTP server writes a real "HTTP/1.1 200 OK" line (via its
+// on_success callback, before the handler runs), which we rewrite; CGI/FastCGI
+// emit no status line on success, so we insert a "Status:" header. Repeat calls
+// replace the line (last wins). Stateless — it works purely on the header
+// buffer, so it composes with the request retry loop (which resets outHeaders).
+uw_unit uw_Basis_setResponseStatus(uw_context ctx, uw_Basis_int n) {
+  const char *prefix, *reason;
+  char line[64];
+  int line_len;
+  size_t prefix_len, used, old_line_len = 0, tail_len;
+  char *start, *eol;
+
+  if (n < 100 || n > 599)
+    uw_error(ctx, FATAL, "setResponseStatus: HTTP status code %lld out of range [100, 599]", n);
+
+  prefix = on_success[0] ? "HTTP/1.1 " : "Status: ";
+  reason = uw_status_reason(n);
+
+  line_len = snprintf(line, sizeof line, "%s%lld %s\r\n", prefix, n, reason);
+  if (line_len < 0 || (size_t)line_len >= sizeof line)
+    uw_error(ctx, FATAL, "setResponseStatus: could not format status line");
+
+  // If the header buffer already starts with a status line of this backend's
+  // class, replace that first line; otherwise insert one at the front.
+  prefix_len = strlen(prefix);
+  used = uw_buffer_used(&ctx->outHeaders);
+  start = ctx->outHeaders.start;
+  if (used >= prefix_len && !strncmp(start, prefix, prefix_len)) {
+    eol = strstr(start, "\r\n");
+    if (eol)
+      old_line_len = (size_t)(eol - start) + 2; // include the CRLF
+  }
+  tail_len = used - old_line_len; // bytes after the old status line (headers already written)
+
+  // Ensure room for the (possibly longer) new line plus the trailing NUL the
+  // buffer invariant keeps at ->front. uw_check_headers may realloc, so the
+  // start pointer must be re-read afterward.
+  if ((size_t)line_len > old_line_len)
+    ctx_uw_buffer_check(ctx, "headers", &ctx->outHeaders, (size_t)line_len - old_line_len + 1);
+  start = ctx->outHeaders.start;
+
+  memmove(start + line_len, start + old_line_len, tail_len);
+  memcpy(start, line, line_len);
+  ctx->outHeaders.front = start + line_len + tail_len;
+  *ctx->outHeaders.front = 0;
+
+  return uw_unit_v;
+}
+
 size_t uw_deltas_max = SIZE_MAX;
 
 static delta *allocate_delta(uw_context ctx, unsigned client) {
