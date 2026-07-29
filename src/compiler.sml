@@ -1648,7 +1648,7 @@ fun compileC {cname, oname, ename, libs, profile, debug, linker, link = link'} =
         val opt = if debug then
                       ""
                   else
-                      " -O3"
+                      " " ^ Settings.getCCompileOpt ()
 
         val compile = (Settings.getCCompiler ()) ^ " " ^ Config.ccArgs ^ " " ^ Config.pthreadCflags ^ " -Wimplicit -Werror -Wno-unused-value"
                       ^ opt ^ " -I " ^ !Settings.configInclude
