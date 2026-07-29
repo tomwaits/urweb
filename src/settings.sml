@@ -586,6 +586,7 @@ datatype sql_type =
        | Bool
        | Time
        | Blob
+       | Uuid
        | Channel
        | Client
        | Nullable of sql_type
@@ -603,6 +604,7 @@ fun p_sql_ctype t =
           | Bool => "uw_Basis_bool"
           | Time => "uw_Basis_time"
           | Blob => "uw_Basis_blob"
+          | Uuid => "uw_Basis_uuid"
           | Channel => "uw_Basis_channel"
           | Client => "uw_Basis_client"
           | Nullable String => "uw_Basis_string"

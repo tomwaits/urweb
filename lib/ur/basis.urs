@@ -4,6 +4,7 @@ type string
 type char
 type time
 type blob
+type uuid
 
 type unit = {}
 
@@ -284,6 +285,7 @@ val sql_string : sql_injectable_prim string
 val sql_char : sql_injectable_prim char
 val sql_time : sql_injectable_prim time
 val sql_blob : sql_injectable_prim blob
+val sql_uuid : sql_injectable_prim uuid
 val sql_channel : t ::: Type -> sql_injectable_prim (channel t)
 val sql_client : sql_injectable_prim client
 
@@ -1059,6 +1061,11 @@ val blobSize : blob -> int
 val textBlob : string -> blob
 val textOfBlob : blob -> option string
 (* Returns [Some] exactly when the blob contains no zero bytes. *)
+
+val uuidToString : uuid -> string
+val stringToUuid : string -> option uuid
+(* [stringToUuid] returns [Some] exactly for a canonical 8-4-4-4-12 hex UUID,
+ * normalized to lowercase; [None] otherwise. *)
 
 type postBody
 val postType : postBody -> string

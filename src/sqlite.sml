@@ -40,6 +40,7 @@ fun p_sql_type t =
       | Bool => "integer"
       | Time => "text"
       | Blob => "blob"
+      | Uuid => "text"
       | Channel => "integer"
       | Client => "integer"
       | Nullable t => p_sql_type t
@@ -171,6 +172,8 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
                   string "uw_sqlsuffixChar = \"\";",
                   newline,
                   string "uw_sqlsuffixBlob = \"\";",
+                  newline,
+                  string "uw_sqlsuffixUuid = \"\";",
                   newline,
                   string "uw_sqlfmtUint4 = \"%u%n\";",
                   newline],
@@ -422,6 +425,7 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
                     box [string "(uw_Basis_string)sqlite3_column_text(stmt, ", string (Int.toString i), string ")"]
                 else
                     box [string "uw_strdup(ctx, (uw_Basis_string)sqlite3_column_text(stmt, ", string (Int.toString i), string "))"]
+              | Uuid => p_unsql String
               | Char => box [string "sqlite3_column_text(stmt, ", string (Int.toString i), string ")[0]"]
               | Bool => box [string "(uw_Basis_bool)sqlite3_column_int(stmt, ", string (Int.toString i), string ")"]
               | Time => box [string "uw_Basis_stringToTimef_error(ctx, ",
@@ -467,6 +471,7 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
                      string ") == SQLITE_NULL ? NULL : ",
                      case t of
                          String => getter t
+                       | Uuid => getter t
                        | _ => box [string "({",
                                    newline,
                                    string (p_sql_ctype t),
@@ -592,6 +597,7 @@ fun p_inputs loc =
                                                        string ", ",
                                                        arg,
                                                        string ", -1, SQLITE_TRANSIENT)"]
+                                      | Uuid => bind (String, arg)
                                       | Char => box [string "sqlite3_bind_text(stmt, ",
                                                      string (Int.toString (i + 1)),
                                                      string ", ",

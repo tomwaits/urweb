@@ -40,6 +40,7 @@ fun p_sql_type t =
       | Bool => "bool"
       | Time => "timestamp"
       | Blob => "longblob"
+      | Uuid => "char(36)"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type t
@@ -53,6 +54,7 @@ fun p_buffer_type t =
       | Bool => "MYSQL_TYPE_LONG"
       | Time => "MYSQL_TYPE_TIMESTAMP"
       | Blob => "MYSQL_TYPE_BLOB"
+      | Uuid => "MYSQL_TYPE_STRING"
       | Channel => "MYSQL_TYPE_LONGLONG"
       | Client => "MYSQL_TYPE_LONG"
       | Nullable t => p_buffer_type t
@@ -66,6 +68,7 @@ fun p_sql_type_base t =
       | Bool => "tinyint"
       | Time => "timestamp"
       | Blob => "longblob"
+      | Uuid => "char(36)"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type_base t
@@ -404,6 +407,8 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
                   newline,
                   string "uw_sqlsuffixBlob = \"\";",
                   newline,
+                  string "uw_sqlsuffixUuid = \"\";",
+                  newline,
                   string "uw_sqlfmtUint4 = \"%u%n\";",
                   newline,
                   newline,
@@ -666,6 +671,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                string "s;",
                                newline,
                                string "})"]
+              | Uuid => getter String
               | Blob => box [string "({",
                              newline,
                              string "uw_Basis_blob b = {length",
@@ -725,6 +731,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                string " ? NULL : ",
                                case t of
                                    String => getter t
+                                 | Uuid => getter t
                                  | _ => box [string "({",
                                              newline,
                                              string (p_sql_ctype t),

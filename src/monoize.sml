@@ -1974,6 +1974,10 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
             ((L'.EAbs ("x", (L'.TFfi ("Basis", "blob"), loc), (L'.TFfi ("Basis", "string"), loc),
                        (L'.EFfiApp ("Basis", "sqlifyBlob", [((L'.ERel 0, loc), (L'.TFfi ("Basis", "blob"), loc))]), loc)), loc),
              fm)
+          | L.EFfi ("Basis", "sql_uuid") =>
+            ((L'.EAbs ("x", (L'.TFfi ("Basis", "uuid"), loc), (L'.TFfi ("Basis", "string"), loc),
+                       (L'.EFfiApp ("Basis", "sqlifyUuid", [((L'.ERel 0, loc), (L'.TFfi ("Basis", "uuid"), loc))]), loc)), loc),
+             fm)
           | L.ECApp ((L.EFfi ("Basis", "sql_channel"), _), _) =>
             ((L'.EAbs ("x", (L'.TFfi ("Basis", "channel"), loc), (L'.TFfi ("Basis", "string"), loc),
                        (L'.EFfiApp ("Basis", "sqlifyChannel", [((L'.ERel 0, loc), (L'.TFfi ("Basis", "channel"), loc))]), loc)), loc),

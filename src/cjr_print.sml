@@ -68,6 +68,7 @@ fun isUnboxable (t : typ) =
     case #1 t of
         TDatatype (Default, _, _) => true
       | TFfi ("Basis", "string") => true
+      | TFfi ("Basis", "uuid") => true
       | TFfi ("Basis", "queryString") => true
       | _ => false
 
@@ -500,6 +501,7 @@ fun getPargs (e, _) =
       | EFfiApp ("Basis", "sqlifyBool", [(e, _)]) => [(e, Bool)]
       | EFfiApp ("Basis", "sqlifyTime", [(e, _)]) => [(e, Time)]
       | EFfiApp ("Basis", "sqlifyBlob", [(e, _)]) => [(e, Blob)]
+      | EFfiApp ("Basis", "sqlifyUuid", [(e, _)]) => [(e, Uuid)]
       | EFfiApp ("Basis", "sqlifyChannel", [(e, _)]) => [(e, Channel)]
       | EFfiApp ("Basis", "sqlifyClient", [(e, _)]) => [(e, Client)]
 
@@ -1402,6 +1404,7 @@ fun sql_type_in env (tAll as (t, loc)) =
       | TFfi ("Basis", "bool") => Bool
       | TFfi ("Basis", "time") => Time
       | TFfi ("Basis", "blob") => Blob
+      | TFfi ("Basis", "uuid") => Uuid
       | TFfi ("Basis", "channel") => Channel
       | TFfi ("Basis", "client") => Client
       | TOption t' => Nullable (sql_type_in env t')

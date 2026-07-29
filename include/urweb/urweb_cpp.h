@@ -182,6 +182,7 @@ uw_Basis_string uw_Basis_sqlifyChar(struct uw_context *, uw_Basis_char);
 uw_Basis_string uw_Basis_sqlifyBool(struct uw_context *, uw_Basis_bool);
 uw_Basis_string uw_Basis_sqlifyTime(struct uw_context *, uw_Basis_time);
 uw_Basis_string uw_Basis_sqlifyBlob(struct uw_context *, uw_Basis_blob);
+uw_Basis_string uw_Basis_sqlifyUuid(struct uw_context *, uw_Basis_uuid);
 uw_Basis_string uw_Basis_sqlifyChannel(struct uw_context *, uw_Basis_channel);
 uw_Basis_string uw_Basis_sqlifyClient(struct uw_context *, uw_Basis_client);
 
@@ -217,6 +218,8 @@ uw_Basis_char uw_Basis_stringToChar_error(struct uw_context *, uw_Basis_string);
 uw_Basis_bool uw_Basis_stringToBool_error(struct uw_context *, uw_Basis_string);
 uw_Basis_time uw_Basis_stringToTime_error(struct uw_context *, const char *);
 uw_Basis_blob uw_Basis_stringToBlob_error(struct uw_context *, uw_Basis_string, size_t);
+uw_Basis_uuid uw_Basis_stringToUuid(struct uw_context *, uw_Basis_string);
+uw_Basis_string uw_Basis_uuidToString(struct uw_context *, uw_Basis_uuid);
 uw_Basis_channel uw_Basis_stringToChannel_error(struct uw_context *, uw_Basis_string);
 uw_Basis_client uw_Basis_stringToClient_error(struct uw_context *, uw_Basis_string);
 
@@ -316,6 +319,7 @@ extern int uw_Estrings, uw_sql_type_annotations;
 extern char *uw_sqlsuffixString;
 extern char *uw_sqlsuffixChar;
 extern char *uw_sqlsuffixBlob;
+extern char *uw_sqlsuffixUuid;
 extern char *uw_sqlfmtUint4;
 
 void *uw_get_global(struct uw_context *, char *name);
