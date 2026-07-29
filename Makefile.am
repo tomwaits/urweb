@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
+	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -164,12 +164,16 @@ tests/respstatus.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
 	bin/urweb -boot -noEmacs tests/respstatus
 
+tests/notfound.exe: bin/urweb | demo/demo.exe
+	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
+	bin/urweb -boot -noEmacs tests/notfound
+
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
 
 QUERY_FIXTURES = qguard agg
 
-test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe
+test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe
 	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
 	bin/urweb -tc -boot -noEmacs tests/blockquote || (echo "Test 'blockquote' failed: the blockquote tag did not typecheck (urweb/urweb#259)"; false)
 	bin/urweb -tc -boot -noEmacs tests/inputattrs || (echo "Test 'inputattrs' failed: input validation attributes (Pattern/Minlength/Maxlength/Autocomplete/Readonly/Disabled) did not typecheck (urweb/urweb#275)"; false)
@@ -201,6 +205,16 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	sleep 1
 	(curl -si 'http://localhost:8085/Respstatus/notFound' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 404 did not set the status line to 404 (urweb/urweb#222)"; false)
 	(curl -si 'http://localhost:8085/Respstatus/tooMany' | grep -qiE '^HTTP/[0-9.]+ 429( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 429 did not set the status line to 429 (urweb/urweb#222)"; false)
+	kill `cat $(TESTPID)`
+	@# urweb/urweb#39: the `notFoundPage` .urp directive supplies a custom body
+	@# for URLs that match no page. A request to a nonexistent path must return
+	@# 404 with our custom HTML (NOTFOUND_CUSTOM_BODY) as text/html, not the
+	@# default plain "Not Found". /Notfound/main exists; /Notfound/nope does not.
+	tests/notfound.exe -q -a 127.0.0.1 -p 8086 & echo $$! > $(TESTPID)
+	sleep 1
+	(curl -si 'http://localhost:8086/Notfound/nope' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: an unmatched URL did not return a 404 status line (urweb/urweb#39)"; false)
+	(curl -s 'http://localhost:8086/Notfound/nope' | grep -q 'NOTFOUND_CUSTOM_BODY') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: the custom notFoundPage body was not served on a 404 (urweb/urweb#39)"; false)
+	(curl -si 'http://localhost:8086/Notfound/nope' | grep -qi '^content-type:.*text/html') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: custom 404 not served as text/html (urweb/urweb#39)"; false)
 	kill `cat $(TESTPID)`
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered

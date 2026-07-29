@@ -915,6 +915,7 @@ fun parseUrp' accLibs fname =
                                           m1 :: (fs as _ :: _) =>
                                           onError := SOME (m1, List.take (fs, length fs - 1), List.last fs)
                                         | _ => ErrorMsg.error "invalid 'onError' argument")
+                                   | "notFoundPage" => Settings.setNotFoundPage arg
                                    | "limit" =>
                                      (case String.fields Char.isSpace arg of
                                           [class, num] =>

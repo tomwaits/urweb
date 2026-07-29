@@ -780,6 +780,13 @@ val onError = ref (NONE : (string * string list * string) option)
 fun setOnError x = onError := x
 fun getOnError () = !onError
 
+(* Custom body for the built-in 404 page (urweb/urweb#39). When set, the
+ * generated dispatcher serves this HTML (as text/html) instead of the plain
+ * "Not Found" for URLs that match no page. *)
+val notFoundPage = ref (NONE : string option)
+fun setNotFoundPage s = notFoundPage := SOME s
+fun getNotFoundPage () = !notFoundPage
+
 val limits = ["messages", "clients", "headers", "page", "heap", "script",
               "inputs", "subinputs", "cleanup", "deltas", "transactionals",
               "globals", "database", "time"]
