@@ -12,6 +12,8 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <sys/un.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #include <pthread.h>
 
@@ -340,7 +342,7 @@ static void *worker(void *data) {
 }
 
 static void help(char *cmd) {
-  printf("Usage: %s [-p <port>] [-a <IPv4 address>] [-A <IPv6 address>] [-u <UNIX socket>] [-t <thread count>] [-m <bytes>] [-k] [-q] [-T SEC]\nThe '-k' option turns on HTTP keepalive.\nThe '-q' option turns off some chatter on stdout.\nThe '-T' option sets socket recv timeout (0 disables timeout, default is 5 sec).\nThe '-m' sets the maximum size (in bytes) for any buffer used to hold HTTP data sent by clients.  (The default is 1 MB.)\n", cmd);
+  printf("Usage: %s [-p <port>] [-a <IPv4 address>] [-A <IPv6 address>] [-u <UNIX socket>] [-t <thread count>] [-m <bytes>] [-k] [-q] [-T SEC] [-d <logfile>]\nThe '-k' option turns on HTTP keepalive.\nThe '-q' option turns off some chatter on stdout.\nThe '-T' option sets socket recv timeout (0 disables timeout, default is 5 sec).\nThe '-m' sets the maximum size (in bytes) for any buffer used to hold HTTP data sent by clients.  (The default is 1 MB.)\nThe '-d' option runs the server as a background daemon: it detaches from the terminal and redirects stdout/stderr to <logfile>, printing the daemon's PID before the launching process exits.\n", cmd);
 }
 
 static void sigint(int signum) {
@@ -364,6 +366,7 @@ int main(int argc, char *argv[]) {
   socklen_t my_size = 0, sin_size;
   int yes = 1, uw_port = 8080, nthreads = 1, i, *names, opt;
   int recv_timeout_sec = 5;
+  char *logfile = NULL;
  
   signal(SIGINT, sigint);
   signal(SIGPIPE, SIG_IGN); 
@@ -373,7 +376,7 @@ int main(int argc, char *argv[]) {
   my_addr.sa.sa_family = AF_INET;
   my_addr.ipv4.sin_addr.s_addr = INADDR_ANY; // auto-fill with my IP
 
-  while ((opt = getopt(argc, argv, "hp:a:A:u:t:kqT:m:")) != -1) {
+  while ((opt = getopt(argc, argv, "hp:a:A:u:t:kqT:m:d:")) != -1) {
     switch (opt) {
     case '?':
       fprintf(stderr, "Unknown command-line option\n");
@@ -456,6 +459,10 @@ int main(int argc, char *argv[]) {
       max_buf_size = opt;
       break;
 
+    case 'd':
+      logfile = optarg;
+      break;
+
     default:
       fprintf(stderr, "Unexpected getopt() behavior\n");
       return 1;
@@ -513,6 +520,60 @@ int main(int argc, char *argv[]) {
           "behind a production-quality HTTP server, for a real deployment.\n\n");
 
   qprintf("Listening on port %d....\n", uw_port);
+
+  // Optional daemonization (-d <logfile>): detach from the controlling terminal
+  // so the server keeps running after the launching shell exits, with
+  // stdout/stderr redirected to <logfile>. This MUST happen here -- after
+  // listen() (so bind/listen errors are still reported to the terminal) but
+  // BEFORE any worker or pruner thread is spawned: fork() carries only the
+  // calling thread into the child, so forking a multi-threaded process would
+  // strand the other threads.
+  if (logfile) {
+    int logfd = open(logfile, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    pid_t pid;
+
+    if (logfd < 0) {
+      fprintf(stderr, "Cannot open log file '%s': %s\n", logfile, strerror(errno));
+      return 1;
+    }
+
+    // Flush any buffered output before forking so it is not duplicated into
+    // both the parent's stdout and the child's log.
+    fflush(stdout);
+    fflush(stderr);
+
+    pid = fork();
+    if (pid < 0) {
+      fprintf(stderr, "fork() for daemonization failed: %s\n", strerror(errno));
+      return 1;
+    } else if (pid > 0) {
+      // Parent: report the child's PID (so it can be stopped with `kill`) and
+      // exit, returning control to the shell.
+      printf("Daemonized: pid %ld, logging to %s\n", (long)pid, logfile);
+      return 0;
+    }
+
+    // Child: become a session leader, detached from the controlling terminal,
+    // and re-point the standard streams at the log file (stdin from /dev/null).
+    // We deliberately do NOT chdir("/"): a dev server resolves its database and
+    // static files relative to the launch directory.
+    if (setsid() < 0)
+      _exit(1);
+    {
+      int devnull = open("/dev/null", O_RDONLY);
+      if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        if (devnull > STDERR_FILENO) close(devnull);
+      }
+      dup2(logfd, STDOUT_FILENO);
+      dup2(logfd, STDERR_FILENO);
+      if (logfd > STDERR_FILENO) close(logfd);
+    }
+    // Mark the daemon's start in its own log, flushed, so the log is non-empty
+    // immediately regardless of -q.
+    printf("Ur/Web daemon started (pid %ld).\n", (long)getpid());
+    fflush(stdout);
+  }
 
   {
     pthread_t thread;
