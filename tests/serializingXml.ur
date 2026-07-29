@@ -10,5 +10,6 @@ cookie uhoh : serialized xbody
 fun main () : transaction page =
     setCookie uhoh {Value = serialize <xml><active code={alerts 3; return <xml>Yay!</xml>}/></xml>,
                     Expires = None,
-                    Secure = False};
+                    Secure = False,
+                    HttpOnly = True};
     return <xml></xml>

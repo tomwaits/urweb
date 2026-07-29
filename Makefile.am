@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
+	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -152,13 +152,23 @@ tests/dce.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
 	bin/urweb -boot -noEmacs tests/dce
 
+tests/cookiehttponly.exe: bin/urweb | demo/demo.exe
+	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
+	bin/urweb -boot -noEmacs tests/cookiehttponly
+
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
 
 QUERY_FIXTURES = qguard agg
 
-test: demo/demo.exe tests/dce.exe
+test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe
 	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
+	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
+	@# Set-Cookie response header.
+	tests/cookiehttponly.exe -q -a 127.0.0.1 -p 8083 & echo $$! > $(TESTPID)
+	sleep 1
+	(curl -si 'http://localhost:8083/Cookiehttponly/main' | grep -i '^set-cookie:' | grep -qi 'httponly') || (kill `cat $(TESTPID)`; echo "Test 'cookiehttponly' failed: Set-Cookie header missing 'httponly' (PR#279)"; false)
+	kill `cat $(TESTPID)`
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
 	@# before. qguard spans plain SELECT + WHERE + ORDER BY (multiple, ASC/DESC,

@@ -1639,7 +1639,7 @@ fun evalExp env (e as (_, loc)) k =
                                                                                          (cs, SS.add (ts, tab)))
                                                                               | EFfiApp ("Basis", "set_cookie",
                                                                                          [_, ((EPrim (Prim.String (_, cname)), _), _),
-                                                                                          _, _, _]) =>
+                                                                                          _, _, _, _]) =>
                                                                                 (SS.add (cs, cname), ts)
                                                                               | _ => st}
                                                                   (SS.empty, SS.empty) b
@@ -1975,7 +1975,7 @@ fun check (file : file) =
                           | EFfi _ => e
                           | EFfiApp (m, f, es) =>
                             (case (m, f, es) of
-                                 ("Basis", "set_cookie", [_, ((EPrim (Prim.String (_, cname)), _), _), _, _, _]) =>
+                                 ("Basis", "set_cookie", [_, ((EPrim (Prim.String (_, cname)), _), _), _, _, _, _]) =>
                                  cookies := SS.add (!cookies, cname)
                                | _ => ();
                              (EFfiApp (m, f, map (fn (e, t) => (doExp env e, t)) es), loc))
