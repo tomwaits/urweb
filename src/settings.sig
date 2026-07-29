@@ -279,6 +279,10 @@ signature SETTINGS = sig
     val setOnError : (string * string list * string) option -> unit
     val getOnError : unit -> (string * string list * string) option
 
+    (* Custom HTML body for the built-in 404 Not Found page (urweb/urweb#39). *)
+    val setNotFoundPage : string -> unit
+    val getNotFoundPage : unit -> string option
+
     val addLimit : string * int -> unit
     val limits : unit -> (string * int) list
 

@@ -3634,9 +3634,15 @@ fun p_file env (ds, ps) =
              newline,
              string "uw_write_header(ctx, uw_supports_direct_status ? \"HTTP/1.1 404 Not Found\\r\\n\" : \"Status: 404 Not Found\\r\\n\");",
              newline,
-             string "uw_write_header(ctx, \"Content-type: text/plain\\r\\n\");",
-             newline,
-             string "uw_write(ctx, \"Not Found\");",
+             (* urweb/urweb#39: a custom 404 body when the app sets one via the
+              * `notFoundPage` .urp directive; otherwise the plain default. *)
+             (case Settings.getNotFoundPage () of
+                  NONE => box [string "uw_write_header(ctx, \"Content-type: text/plain\\r\\n\");",
+                               newline,
+                               string "uw_write(ctx, \"Not Found\");"]
+                | SOME body => box [string "uw_write_header(ctx, \"Content-type: text/html\\r\\n\");",
+                                    newline,
+                                    string ("uw_write(ctx, \"" ^ Prim.toCString body ^ "\");")]),
              newline,
              string "}",
              newline,
