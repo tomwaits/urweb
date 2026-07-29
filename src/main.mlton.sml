@@ -225,6 +225,8 @@ fun oneRun args =
                     SOME "enable static linking"),
               ("staticRuntime", call_true Settings.setStaticRuntimeLinking,
                     SOME "statically link liburweb but dynamically link system libraries"),
+              ("ccopt", ONE ("<flags>", Settings.setCCompileOpt),
+                    SOME "C-compiler optimization flags for the generated code (default -O3; e.g. -O0 for fast dev/CI builds)"),
               ("stop", ONE ("<phase>", Compiler.setStop),
                     SOME "stop compilation after <phase>"),
               ("path", TWO ("<name>", "<path>", Compiler.addPath),

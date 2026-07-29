@@ -76,6 +76,27 @@ jobs:
             || { echo "staticRuntime FAILED: expected dynamic libc, got a non-dynamic binary (#44)"; exit 1; }
           echo "staticRuntime: PASS (liburweb static; system libs dynamic)"
 
+      # Compile-speed win: -ccopt un-hardcodes the C-compiler optimization level
+      # (measured: gcc -O3 on the single big generated .c dominates large-app
+      # compile time). Default stays -O3; dev/CI can lower it (e.g. -O0).
+      - name: -ccopt sets the C-compiler optimization level
+        run: |
+          set -euo pipefail
+          # Positive: a valid lowered level compiles and produces a binary.
+          # Remove the artifact from earlier steps first so this asserts on the
+          # FRESH -O0 build, not a stale demo/hello.exe.
+          rm -f demo/hello.exe
+          result/bin/urweb -ccopt -O0 demo/hello
+          test -x demo/hello.exe \
+            || { echo "ccopt FAILED: -ccopt -O0 did not produce a binary"; exit 1; }
+          # Red-green discriminator: the opt flags must actually reach gcc, so a
+          # bogus level makes gcc reject it and the compile FAILS. If -ccopt were
+          # ignored (opt still hardcoded -O3), this would compile fine.
+          if result/bin/urweb -ccopt -Obogus demo/hello 2>/dev/null; then
+            echo "ccopt FAILED: -ccopt -Obogus compiled — opt flags are NOT reaching the C compiler"; exit 1
+          fi
+          echo "ccopt: PASS (-O0 builds; -Obogus rejected by gcc, so the flags reach the C compiler)"
+
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
   # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
   # the startup schema-structure check (#230), timestamp handling (#163), the

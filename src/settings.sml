@@ -747,6 +747,14 @@ val bootLinking = ref false
 fun setBootLinking b = bootLinking := b
 fun getBootLinking () = !bootLinking
 
+(* C-compiler optimization flags for the generated .c (default "-O3"). gcc -O3
+ * on the single large generated file dominates compile time for big apps, so
+ * allow dev/CI builds to lower it (e.g. "-O0"). -debug still forces no
+ * optimization, overriding this. *)
+val ccompileOpt = ref "-O3"
+fun setCCompileOpt s = ccompileOpt := s
+fun getCCompileOpt () = !ccompileOpt
+
 val deadlines = ref false
 fun setDeadlines b = deadlines := b
 fun getDeadlines () = !deadlines
