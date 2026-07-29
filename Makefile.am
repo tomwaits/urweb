@@ -181,7 +181,6 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# high-surrogate encoding ED A0 BD.
 	tests/jsonsurrogate.exe -q -a 127.0.0.1 -p 8084 & echo $$! > $(TESTPID)
 	sleep 2
-	@echo "=== DIAG jsonsurrogate raw response (od -c) ==="; curl -s 'http://localhost:8084/Jsonsurrogate/main' | od -c | head -30; echo "=== DIAG end ==="
 	(curl -s 'http://localhost:8084/Jsonsurrogate/main' | grep -q 'SURROGATE_PAIR_OK') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: surrogate pair did not decode to one U+1F600 scalar value (strlen/strlenUtf8 self-check) -- urweb/urweb#211"; false)
 	(curl -s 'http://localhost:8084/Jsonsurrogate/main' | od -An -tx1 | tr -d ' \n' | grep -q 'f09f9880') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: response missing U+1F600 UTF-8 bytes F0 9F 98 80 -- urweb/urweb#211"; false)
 	! (curl -s 'http://localhost:8084/Jsonsurrogate/main' | od -An -tx1 | tr -d ' \n' | grep -q 'eda0bd') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: response contains WTF-8 high-surrogate bytes ED A0 BD -- surrogate pair not combined (urweb/urweb#211)"; false)
