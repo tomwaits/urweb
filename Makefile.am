@@ -144,29 +144,33 @@ TESTPID = /tmp/urweb.pid
 # from a clean tree failed and parallel builds were racy. bin/urweb is a
 # real target here; the src/c sub-make orders this after the SUBDIRS
 # libraries (a no-op when they are already current).
+# Test binaries are compiled with -ccopt -O0: they exist only to answer a single
+# request in the checks below, so gcc -O3 (which dominates each compile -- see the
+# compile-speed measurement) is pure waste here. -O0 makes `make test` far faster;
+# behavioral correctness is optimization-level-independent.
 demo/demo.exe: bin/urweb
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
-	bin/urweb -boot -noEmacs -dbms sqlite -db $(TESTDB) -demo /Demo demo
+	bin/urweb -boot -noEmacs -ccopt -O0 -dbms sqlite -db $(TESTDB) -demo /Demo demo
 
 tests/dce.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
-	bin/urweb -boot -noEmacs tests/dce
+	bin/urweb -boot -noEmacs -ccopt -O0 tests/dce
 
 tests/cookiehttponly.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
-	bin/urweb -boot -noEmacs tests/cookiehttponly
+	bin/urweb -boot -noEmacs -ccopt -O0 tests/cookiehttponly
 
 tests/jsonsurrogate.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
-	bin/urweb -boot -noEmacs tests/jsonsurrogate
+	bin/urweb -boot -noEmacs -ccopt -O0 tests/jsonsurrogate
 
 tests/respstatus.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
-	bin/urweb -boot -noEmacs tests/respstatus
+	bin/urweb -boot -noEmacs -ccopt -O0 tests/respstatus
 
 tests/notfound.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
-	bin/urweb -boot -noEmacs tests/notfound
+	bin/urweb -boot -noEmacs -ccopt -O0 tests/notfound
 
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
@@ -273,10 +277,10 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# the rule-list half of the check always pass, isolating the character
 	@# check as the only possible source of that error. See urweb/urweb#271.
 	@echo "==> [charset] hdrbad/hdrtok (RFC 7230 header-name charset, #271)"
-	@out=`bin/urweb -boot -noEmacs tests/hdrbad 2>&1`; \
+	@out=`bin/urweb -boot -noEmacs -ccopt -O0 tests/hdrbad 2>&1`; \
 	echo "$$out" | grep -q "Invalid string" \
 	  || { echo "Test 'hdrbad' failed: blessRequestHeader accepted a name containing '/' (urweb/urweb#271). Compiler output:"; echo "$$out"; false; }
-	@rm -f tests/hdrtok.exe; out=`bin/urweb -boot -noEmacs tests/hdrtok 2>&1`; \
+	@rm -f tests/hdrtok.exe; out=`bin/urweb -boot -noEmacs -ccopt -O0 tests/hdrtok 2>&1`; \
 	if echo "$$out" | grep -q "Invalid string"; then \
 	  echo "Test 'hdrtok' failed: a valid RFC 7230 header-name character ('_') was rejected (urweb/urweb#271). Compiler output:"; echo "$$out"; false; \
 	elif test ! -x tests/hdrtok.exe; then \
