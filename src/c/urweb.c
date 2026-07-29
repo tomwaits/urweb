@@ -265,6 +265,15 @@ static client *find_client(unsigned id) {
 static char *on_success = "HTTP/1.1 200 OK\r\n";
 static char *on_redirect = "HTTP/1.1 303 See Other\r\n";
 
+// The canonical "can this backend write a raw HTTP/1.1 status line, or must it
+// use a CGI-style Status: header?" discriminator (http=1; cgi/fastcgi/static=0),
+// declared in include/urweb/urweb_cpp.h, which this file does not include. Use it
+// for the status-line decision instead of the on_success[0] proxy: the two agree
+// for http/cgi/fastcgi but diverge for the static backend, which never calls
+// uw_set_on_success (so on_success[0] stays 'H' while direct_status is 0). The
+// generated code already keys 404/304 on this same flag (see cjr_print.sml).
+extern int uw_supports_direct_status;
+
 void uw_set_on_success(char *s) {
   on_success = s;
 }
@@ -3658,7 +3667,7 @@ uw_unit uw_Basis_setResponseStatus(uw_context ctx, uw_Basis_int n) {
   if (n < 100 || n > 599)
     uw_error(ctx, FATAL, "setResponseStatus: HTTP status code %lld out of range [100, 599]", n);
 
-  prefix = on_success[0] ? "HTTP/1.1 " : "Status: ";
+  prefix = uw_supports_direct_status ? "HTTP/1.1 " : "Status: ";
   reason = uw_status_reason(n);
 
   line_len = snprintf(line, sizeof line, "%s%lld %s\r\n", prefix, n, reason);
@@ -4480,11 +4489,11 @@ __attribute__((noreturn)) void uw_redirect(uw_context ctx, uw_Basis_string url) 
   ctx->page.start[uw_buffer_used(&ctx->outHeaders)] = 0;
   uw_buffer_reset(&ctx->outHeaders);
 
-  if (on_success[0])
+  if (uw_supports_direct_status)
     uw_write_header(ctx, on_redirect);
   else
     uw_write_header(ctx, "Status: 303 See Other\r\n");
-  s = on_success[0] ? strchr(ctx->page.start, '\n') : ctx->page.start;
+  s = uw_supports_direct_status ? strchr(ctx->page.start, '\n') : ctx->page.start;
   if (s) {
     char *s2;
     if (s[0] == '\n') ++s;
@@ -4917,7 +4926,7 @@ failure_kind uw_begin_onError(uw_context ctx, char *msg) {
       uw_ensure_transaction(ctx);
 
       uw_buffer_reset(&ctx->outHeaders);
-      if (on_success[0])
+      if (uw_supports_direct_status)
         uw_write_header(ctx, "HTTP/1.1 ");
       else
         uw_write_header(ctx, "Status: ");
