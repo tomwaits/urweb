@@ -1609,18 +1609,25 @@ fun compileC {cname, oname, ename, libs, profile, debug, linker, link = link'} =
     let
         val proto = Settings.currentProtocol ()
 
-        (* Boot linking and -staticRuntime share a link line: static
-         * liburweb.a plus dynamically linked system libraries. They differ
-         * only in which configLib is in force -- the build tree under -boot,
-         * the install prefix for an installed -staticRuntime compiler. *)
-        val lib = if Settings.getBootLinking () orelse Settings.getStaticRuntimeLinking () then
-                      !Settings.configLib ^ "/" ^ #linkStatic proto ^ " " ^
-                      !Settings.configLib ^ "/liburweb.a " ^
-                      !Settings.configIcuLibs ^ " -licui18n -licuuc -licudata -licuio"
+        (* liburweb linked as a static archive, system libraries left dynamic.
+         * Shared by -boot (configLib repointed at the build tree) and by
+         * -staticRuntime (configLib is the install prefix); the two differ
+         * only in which configLib is in force, so the string is identical. *)
+        val staticRuntimeLib =
+            !Settings.configLib ^ "/" ^ #linkStatic proto ^ " " ^
+            !Settings.configLib ^ "/liburweb.a " ^
+            !Settings.configIcuLibs ^ " -licui18n -licuuc -licudata -licuio"
+
+        (* Precedence matters when flags are combined: -boot first (it also
+         * repoints configLib in-tree); then full -static (static glibc too), so
+         * an explicit -static is never silently weakened to partial by a
+         * co-supplied -staticRuntime; then -staticRuntime; else dynamic. *)
+        val lib = if Settings.getBootLinking () then
+                      staticRuntimeLib
                   else if Settings.getStaticLinking () then
-                      " -static " ^ !Settings.configLib ^ "/" ^ #linkStatic
-                      proto ^ " " ^ !Settings.configLib ^ "/liburweb.a " ^
-                      !Settings.configIcuLibs ^ " -licui18n -licuuc -licudata -licuio"
+                      " -static " ^ staticRuntimeLib
+                  else if Settings.getStaticRuntimeLinking () then
+                      staticRuntimeLib
                   else
                       "-L" ^ !Settings.configLib ^ " " ^ #linkDynamic proto ^ " -lurweb"
 
