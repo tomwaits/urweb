@@ -915,7 +915,20 @@ fun parseUrp' accLibs fname =
                                           m1 :: (fs as _ :: _) =>
                                           onError := SOME (m1, List.take (fs, length fs - 1), List.last fs)
                                         | _ => ErrorMsg.error "invalid 'onError' argument")
-                                   | "notFoundPage" => Settings.setNotFoundPage arg
+                                   | "notFoundPage" =>
+                                     (* Read the custom 404 body from a file so
+                                      * the HTML may span multiple lines and
+                                      * contain '#' (which the .urp line reader
+                                      * would otherwise treat as a comment). *)
+                                     (let
+                                          val inf = TextIO.openIn (relifyA arg)
+                                          val contents = TextIO.inputAll inf
+                                      in
+                                          TextIO.closeIn inf;
+                                          Settings.setNotFoundPage contents
+                                      end
+                                      handle IO.Io _ =>
+                                             ErrorMsg.error ("notFoundPage: cannot read file '" ^ arg ^ "'"))
                                    | "limit" =>
                                      (case String.fields Char.isSpace arg of
                                           [class, num] =>
