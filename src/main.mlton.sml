@@ -226,7 +226,7 @@ fun oneRun args =
               ("staticRuntime", call_true Settings.setStaticRuntimeLinking,
                     SOME "statically link liburweb but dynamically link system libraries"),
               ("ccopt", ONE ("<flags>", Settings.setCCompileOpt),
-                    SOME "C-compiler optimization flags for the generated code (default -O3; e.g. -O0 for fast dev/CI builds)"),
+                    SOME "C-compiler optimization flags for the generated code (default -O3; e.g. -O1 for fast dev/CI builds -- avoid -O0, which _FORTIFY_SOURCE rejects under -Werror)"),
               ("stop", ONE ("<phase>", Compiler.setStop),
                     SOME "stop compilation after <phase>"),
               ("path", TWO ("<name>", "<path>", Compiler.addPath),
