@@ -3650,11 +3650,12 @@ static const char *uw_status_reason(uw_Basis_int n) {
 }
 
 // Set the HTTP response status code (urweb/urweb#222). Edits the status line in
-// place inside ctx->outHeaders, using the same on_success[0] discriminator that
-// uw_redirect and the 500 path already use to tell backends apart: the
-// standalone HTTP server writes a real "HTTP/1.1 200 OK" line (via its
-// on_success callback, before the handler runs), which we rewrite; CGI/FastCGI
-// emit no status line on success, so we insert a "Status:" header. Repeat calls
+// place inside ctx->outHeaders, using the same uw_supports_direct_status
+// discriminator that uw_redirect and the 500 path use to tell backends apart
+// (unified in urweb/urweb#35): the standalone HTTP server writes a real
+// "HTTP/1.1 200 OK" line (via its on_success callback, before the handler runs),
+// which we rewrite; CGI/FastCGI emit no status line on success, so we insert a
+// "Status:" header. Repeat calls
 // replace the line (last wins). Stateless — it works purely on the header
 // buffer, so it composes with the request retry loop (which resets outHeaders).
 uw_unit uw_Basis_setResponseStatus(uw_context ctx, uw_Basis_int n) {
