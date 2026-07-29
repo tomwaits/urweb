@@ -174,12 +174,19 @@ check-local: test
 QUERY_FIXTURES = qguard agg
 
 test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe
+	@echo ""
+	@echo "=== make test: fixtures built; running checks (each announced below; the slow part was the full demo compile above) ==="
+	@echo "==> [tc 1/6] sigfk        (signature-level FK disjointness, #267)"
 	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
+	@echo "==> [tc 2/6] blockquote   (the blockquote HTML tag, #259)"
 	bin/urweb -tc -boot -noEmacs tests/blockquote || (echo "Test 'blockquote' failed: the blockquote tag did not typecheck (urweb/urweb#259)"; false)
+	@echo "==> [tc 3/6] inputattrs   (input validation attributes, #275)"
 	bin/urweb -tc -boot -noEmacs tests/inputattrs || (echo "Test 'inputattrs' failed: input validation attributes (Pattern/Minlength/Maxlength/Autocomplete/Readonly/Disabled) did not typecheck (urweb/urweb#275)"; false)
+	@echo "==> [tc 4/6] arrowguard   (-> accepted in guarded types, #197)"
 	bin/urweb -tc -boot -noEmacs tests/arrowguard || (echo "Test 'arrowguard' failed: a guarded type written with -> instead of => did not typecheck (urweb/urweb#197)"; false)
 	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
 	@# Set-Cookie response header.
+	@echo "==> [http 1/4] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
 	tests/cookiehttponly.exe -q -a 127.0.0.1 -p 8083 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8083/Cookiehttponly/main' | grep -i '^set-cookie:' | grep -qi 'httponly') || (kill `cat $(TESTPID)`; echo "Test 'cookiehttponly' failed: Set-Cookie header missing 'httponly' (PR#279)"; false)
@@ -191,6 +198,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# RUNTIME-built JSON string on purpose (a compile-time literal would hit a
 	@# separate constant-folding bug for astral chars); its strlen/strlenUtf8
 	@# self-check emits SURROGATE_PAIR_OK, and we also byte-check for F0 9F 98 80.
+	@echo "==> [http 2/4] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :8084"
 	tests/jsonsurrogate.exe -q -a 127.0.0.1 -p 8084 & echo $$! > $(TESTPID)
 	sleep 2
 	(curl -s 'http://localhost:8084/Jsonsurrogate/main' | grep -q 'SURROGATE_PAIR_OK') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: surrogate pair did not decode to one U+1F600 scalar value (strlen/strlenUtf8 self-check) -- urweb/urweb#211"; false)
@@ -201,6 +209,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# = 1), so curl -si shows it verbatim. Two handlers set two different codes
 	@# (404, 429) so the check proves the emitted status tracks the argument, not
 	@# a hardcoded value. -i so the status line is in curl's output.
+	@echo "==> [http 3/4] respstatus (setResponseStatus 404/429, #222) — serving on :8085"
 	tests/respstatus.exe -q -a 127.0.0.1 -p 8085 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8085/Respstatus/notFound' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 404 did not set the status line to 404 (urweb/urweb#222)"; false)
@@ -213,6 +222,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# also preserves '#' (colors/anchors) that the .urp comment stripper would
 	@# truncate -- asserted via the '#top' anchor. /Notfound/main exists;
 	@# /Notfound/nope does not.
+	@echo "==> [http 4/4] notfound (custom 404 notFoundPage, #39) — serving on :8086"
 	tests/notfound.exe -q -a 127.0.0.1 -p 8086 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8086/Notfound/nope' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: an unmatched URL did not return a 404 status line (urweb/urweb#39)"; false)
@@ -241,6 +251,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# lines). NB: #261's other half -- MySQL's `(255)` length prefix using each
 	@# column's own type -- is fixed in code but NOT exercised here (the nix
 	@# build has no mysql backend; textKeysNeedLengths is false for postgres).
+	@echo "==> [sql] pkeyorder      (composite-key column order in emitted DDL, #228/#261)"
 	@rm -f tests/pkeyorder.sql
 	bin/urweb -boot -noEmacs -dbms postgres -sql tests/pkeyorder.sql tests/pkeyorder \
 	  || { echo "Test 'pkeyorder' failed to compile"; false; }
@@ -261,6 +272,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# make it pass vacuously. The wildcard allow-rules in the .urp files make
 	@# the rule-list half of the check always pass, isolating the character
 	@# check as the only possible source of that error. See urweb/urweb#271.
+	@echo "==> [charset] hdrbad/hdrtok (RFC 7230 header-name charset, #271)"
 	@out=`bin/urweb -boot -noEmacs tests/hdrbad 2>&1`; \
 	echo "$$out" | grep -q "Invalid string" \
 	  || { echo "Test 'hdrbad' failed: blessRequestHeader accepted a name containing '/' (urweb/urweb#271). Compiler output:"; echo "$$out"; false; }
@@ -270,6 +282,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	elif test ! -x tests/hdrtok.exe; then \
 	  echo "Test 'hdrtok' failed: did not compile to an executable, so '_' acceptance was not exercised (urweb/urweb#271). Compiler output:"; echo "$$out"; false; \
 	fi
+	@echo "==> [demo] golden-output pages (Hello + Crud1 vs recorded HTML)"
 	rm -f $(TESTDB)
 	sqlite3 $(TESTDB) < demo/demo.sql
 	demo/demo.exe -q -a 127.0.0.1 & echo $$! > $(TESTPID)
@@ -277,6 +290,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	(curl -s 'http://localhost:8080/Demo/Hello/main' | diff tests/hello.html -) || (kill `cat $(TESTPID)`; echo "Test 'Hello' failed"; /bin/false)
 	(curl -s 'http://localhost:8080/Demo/Crud1/create?A=1&B=2&C=3&D=4' | diff tests/crud1.html -) || (kill `cat $(TESTPID)`; echo "Test 'Crud1' failed"; /bin/false)
 	kill `cat $(TESTPID)`
+	@echo "==> [dce] dead-abort-call elimination guard (#221) — serving on :8081"
 	tests/dce.exe -q -a 127.0.0.1 -p 8081 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -s 'http://localhost:8081/Dce/main' > tests/dce.out && grep -q 'Do not eliminate me' tests/dce.out && ! grep -q 'Hello, DCE!' tests/dce.out) || (kill `cat $(TESTPID)`; echo "Test 'dce' failed: branch-selected error call was eliminated (urweb/urweb#221)"; false)
@@ -294,4 +308,5 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	else \
 		echo "Skipped IPv6 tests."; \
 	fi
-	echo Tests succeeded.
+	@echo ""
+	@echo "=== make test: ALL CHECKS PASSED ==="
