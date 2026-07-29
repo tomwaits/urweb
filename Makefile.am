@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
+	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe $(TESTDLOG) $(TESTDOUT) tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -136,6 +136,8 @@ dist-hook:
 
 TESTDB = /tmp/urweb.db
 TESTPID = /tmp/urweb.pid
+TESTDLOG = /tmp/urweb.daemon.log
+TESTDOUT = /tmp/urweb.daemon.out
 
 # demo/demo.exe is produced by compiling the bundled demo with the
 # freshly built compiler. It genuinely depends on bin/urweb and, because
@@ -175,12 +177,16 @@ tests/notfound.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
 	bin/urweb -boot -noEmacs -ccopt -O1 tests/notfound
 
+tests/daemon.exe: bin/urweb | demo/demo.exe
+	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
+	bin/urweb -boot -noEmacs -ccopt -O1 tests/daemon
+
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
 
 QUERY_FIXTURES = qguard agg
 
-test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe
+test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe
 	@echo ""
 	@echo "=== make test: fixtures built; running checks (each announced below; the slow part was the full demo compile above) ==="
 	@echo "==> [tc 1/6] sigfk        (signature-level FK disjointness, #267)"
@@ -193,7 +199,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	bin/urweb -tc -boot -noEmacs tests/arrowguard || (echo "Test 'arrowguard' failed: a guarded type written with -> instead of => did not typecheck (urweb/urweb#197)"; false)
 	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
 	@# Set-Cookie response header.
-	@echo "==> [http 1/4] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
+	@echo "==> [http 1/5] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
 	tests/cookiehttponly.exe -q -a 127.0.0.1 -p 8083 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8083/Cookiehttponly/main' | grep -i '^set-cookie:' | grep -qi 'httponly') || (kill `cat $(TESTPID)`; echo "Test 'cookiehttponly' failed: Set-Cookie header missing 'httponly' (PR#279)"; false)
@@ -205,7 +211,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# RUNTIME-built JSON string on purpose (a compile-time literal would hit a
 	@# separate constant-folding bug for astral chars); its strlen/strlenUtf8
 	@# self-check emits SURROGATE_PAIR_OK, and we also byte-check for F0 9F 98 80.
-	@echo "==> [http 2/4] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :8084"
+	@echo "==> [http 2/5] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :8084"
 	tests/jsonsurrogate.exe -q -a 127.0.0.1 -p 8084 & echo $$! > $(TESTPID)
 	sleep 2
 	(curl -s 'http://localhost:8084/Jsonsurrogate/main' | grep -q 'SURROGATE_PAIR_OK') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: surrogate pair did not decode to one U+1F600 scalar value (strlen/strlenUtf8 self-check) -- urweb/urweb#211"; false)
@@ -216,7 +222,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# = 1), so curl -si shows it verbatim. Two handlers set two different codes
 	@# (404, 429) so the check proves the emitted status tracks the argument, not
 	@# a hardcoded value. -i so the status line is in curl's output.
-	@echo "==> [http 3/4] respstatus (setResponseStatus 404/429, #222) — serving on :8085"
+	@echo "==> [http 3/5] respstatus (setResponseStatus 404/429, #222) — serving on :8085"
 	tests/respstatus.exe -q -a 127.0.0.1 -p 8085 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8085/Respstatus/notFound' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 404 did not set the status line to 404 (urweb/urweb#222)"; false)
@@ -229,13 +235,31 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# also preserves '#' (colors/anchors) that the .urp comment stripper would
 	@# truncate -- asserted via the '#top' anchor. /Notfound/main exists;
 	@# /Notfound/nope does not.
-	@echo "==> [http 4/4] notfound (custom 404 notFoundPage, #39) — serving on :8086"
+	@echo "==> [http 4/5] notfound (custom 404 notFoundPage, #39) — serving on :8086"
 	tests/notfound.exe -q -a 127.0.0.1 -p 8086 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8086/Notfound/nope' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: an unmatched URL did not return a 404 status line (urweb/urweb#39)"; false)
 	(curl -s 'http://localhost:8086/Notfound/nope' | grep -q 'NOTFOUND_CUSTOM_BODY') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: the custom notFoundPage body was not served on a 404 (urweb/urweb#39)"; false)
 	(curl -si 'http://localhost:8086/Notfound/nope' | grep -qi '^content-type:.*text/html') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: custom 404 not served as text/html (urweb/urweb#39)"; false)
 	(curl -s 'http://localhost:8086/Notfound/nope' | grep -qF '#top') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: '#' in the custom page was lost (notFoundPage must read from a file, not the .urp line) (urweb/urweb#39)"; false)
+	kill `cat $(TESTPID)`
+	@# Standalone-server daemon flag: `-d <logfile>` forks BEFORE spawning any
+	@# worker/pruner thread (forking a multi-threaded process would strand the
+	@# other threads), the child setsid()s to detach and redirects stdout/stderr
+	@# to <logfile>, and the PARENT prints "Daemonized: pid <n>" and exits 0. We
+	@# run it in the FOREGROUND (no `&`): under -d a blocking invocation that
+	@# returns is itself proof the server detached. Then we curl the backgrounded
+	@# child (it must still serve), confirm the log file was written, and stop it
+	@# via the reported pid.
+	@echo "==> [http 5/5] daemon (-d detaches, logs, serves in background) — serving on :8087"
+	@rm -f $(TESTDLOG) $(TESTDOUT)
+	tests/daemon.exe -q -a 127.0.0.1 -p 8087 -d $(TESTDLOG) > $(TESTDOUT) || (echo "Test 'daemon' failed: the server exited nonzero under -d instead of daemonizing"; false)
+	(grep -q 'Daemonized: pid' $(TESTDOUT)) || (echo "Test 'daemon' failed: parent did not report 'Daemonized: pid <n>' on stdout under -d"; false)
+	@sed -n 's/.*pid \([0-9][0-9]*\).*/\1/p' $(TESTDOUT) > $(TESTPID)
+	(test -s $(TESTPID)) || (echo "Test 'daemon' failed: could not parse the daemon pid from $(TESTDOUT)"; false)
+	sleep 1
+	(curl -sf 'http://localhost:8087/Daemon/main' | grep -q 'DAEMON_ALIVE') || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: the detached daemon did not serve /Daemon/main in the background"; false)
+	(test -s $(TESTDLOG)) || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: -d log file $(TESTDLOG) was not written (stdout/stderr not redirected)"; false)
 	kill `cat $(TESTPID)`
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
