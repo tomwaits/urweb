@@ -81,8 +81,11 @@ jobs:
       # compile time). Default stays -O3; dev/CI can lower it (e.g. -O0).
       - name: -ccopt sets the C-compiler optimization level
         run: |
-          set -uo pipefail
+          set -euo pipefail
           # Positive: a valid lowered level compiles and produces a binary.
+          # Remove the artifact from earlier steps first so this asserts on the
+          # FRESH -O0 build, not a stale demo/hello.exe.
+          rm -f demo/hello.exe
           result/bin/urweb -ccopt -O0 demo/hello
           test -x demo/hello.exe \
             || { echo "ccopt FAILED: -ccopt -O0 did not produce a binary"; exit 1; }
