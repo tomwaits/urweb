@@ -1698,11 +1698,13 @@ $$\begin{array}{l}
   \mt{val} \; \mt{sql\_query} : \mt{free} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{afree} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{tables} ::: \{\{\mt{Type}\}\} \\
+  \hspace{.1in} \to \mt{grouped} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{selectedFields} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{selectedExps} ::: \{\mt{Type}\} \\
   \hspace{.1in} \to [\mt{free} \sim \mt{tables}] \\
-  \hspace{.1in} \Rightarrow \{\mt{Rows} : \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables} \; \mt{selectedFields} \; \mt{selectedExps}, \\
-  \hspace{.2in} \mt{OrderBy} : \mt{sql\_order\_by} \; (\mt{free} \rc \mt{tables}) \; \mt{selectedExps}, \\
+  \hspace{.1in} \Rightarrow [\mt{free} \sim \mt{grouped}] \\
+  \hspace{.1in} \Rightarrow \{\mt{Rows} : \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables} \; \mt{grouped} \; \mt{selectedFields} \; \mt{selectedExps}, \\
+  \hspace{.2in} \mt{OrderBy} : \mt{sql\_order\_by} \; (\mt{free} \rc \mt{grouped}) \; (\mt{afree} \rc \mt{tables}) \; \mt{selectedExps}, \\
   \hspace{.2in} \mt{Limit} : \mt{sql\_limit}, \\
   \hspace{.2in} \mt{Offset} : \mt{sql\_offset}\} \\
   \hspace{.1in} \to \mt{sql\_query} \; \mt{free} \; \mt{afree} \; \mt{selectedFields} \; \mt{selectedExps}
@@ -1716,9 +1718,9 @@ $$\begin{array}{l}
   \hspace{.1in} \to \mt{state} \to \mt{transaction} \; \mt{state}
 \end{array}$$
 
-Most of the complexity of the query encoding is in the type $\mt{sql\_query1}$, which includes simple queries and derived queries based on relational operators.  Constructor arguments respectively specify the unrestricted free table veriables, the aggregate-only free table variables, the tables we select from, the subset of fields that we keep from each table for the result rows, and the extra expressions that we select.
+Most of the complexity of the query encoding is in the type $\mt{sql\_query1}$, which includes simple queries and derived queries based on relational operators.  Constructor arguments respectively specify the unrestricted free table veriables, the aggregate-only free table variables, the tables we select from, the grouped tables (the \texttt{GROUP BY} subset, against which \texttt{ORDER BY} bare columns are checked since the \#269 fix; equal to all tables when there is no \texttt{GROUP BY}), the subset of fields that we keep from each table for the result rows, and the extra expressions that we select.
 $$\begin{array}{l}
-  \mt{con} \; \mt{sql\_query1} :: \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\mt{Type}\} \to \mt{Type} \\
+  \mt{con} \; \mt{sql\_query1} :: \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\mt{Type}\} \to \mt{Type} \\
   \\
   \mt{type} \; \mt{sql\_relop} \\
   \mt{val} \; \mt{sql\_union} : \mt{sql\_relop} \\
@@ -1728,13 +1730,15 @@ $$\begin{array}{l}
   \hspace{.1in} \to \mt{afree} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{tables1} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{tables2} ::: \{\{\mt{Type}\}\} \\
+  \hspace{.1in} \to \mt{grouped1} ::: \{\{\mt{Type}\}\} \\
+  \hspace{.1in} \to \mt{grouped2} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{selectedFields} ::: \{\{\mt{Type}\}\} \\
   \hspace{.1in} \to \mt{selectedExps} ::: \{\mt{Type}\} \\
   \hspace{.1in} \to \mt{sql\_relop} \\
   \hspace{.1in} \to \mt{bool} \; (* \; \mt{ALL} \; *) \\
-  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables1} \; \mt{selectedFields} \; \mt{selectedExps} \\
-  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables2} \; \mt{selectedFields} \; \mt{selectedExps} \\
-  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{selectedFields} \; \mt{selectedFields} \; \mt{selectedExps}
+  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables1} \; \mt{grouped1} \; \mt{selectedFields} \; \mt{selectedExps} \\
+  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables2} \; \mt{grouped2} \; \mt{selectedFields} \; \mt{selectedExps} \\
+  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; [] \; [] \; \mt{selectedFields} \; \mt{selectedExps}
 \end{array}$$
 
 $$\begin{array}{l}
@@ -1756,7 +1760,7 @@ $$\begin{array}{l}
   \hspace{.2in} \mt{Having} : \mt{sql\_exp} \; (\mt{free} \rc \mt{grouped}) \; (\mt{afree} \rc \mt{tables}) \; [] \; \mt{bool}, \\
   \hspace{.2in} \mt{SelectFields} : \mt{sql\_subset} \; \mt{grouped} \; (\mt{map} \; (\lambda \_ \Rightarrow []) \; \mt{empties} \rc \mt{selectedFields}), \\
   \hspace{.2in} \mt {SelectExps} : \$(\mt{map} \; (\mt{sql\_expw} \; (\mt{free} \rc \mt{grouped}) \; (\mt{afree} \rc \mt{tables}) \; []) \; \mt{selectedExps}) \} \\
-  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables} \; \mt{selectedFields} \; \mt{selectedExps}
+  \hspace{.1in} \to \mt{sql\_query1} \; \mt{free} \; \mt{afree} \; \mt{tables} \; \mt{grouped} \; \mt{selectedFields} \; \mt{selectedExps}
 \end{array}$$
 
 To encode projection of subsets of fields in $\mt{SELECT}$ clauses, and to encode $\mt{GROUP} \; \mt{BY}$ clauses, we rely on a type family $\mt{sql\_subset}$, capturing what it means for one record of table fields to be a subset of another.  The main constructor $\mt{sql\_subset}$ ``proves subset facts'' by requiring a split of a record into kept and dropped parts.  The extra constructor $\mt{sql\_subset\_all}$ is a convenience for keeping all fields of a record.
@@ -1957,12 +1961,12 @@ $$\begin{array}{l}
   \mt{val} \; \mt{sql\_asc} : \mt{sql\_direction} \\
   \mt{val} \; \mt{sql\_desc} : \mt{sql\_direction} \\
   \\
-  \mt{con} \; \mt{sql\_order\_by} :: \{\{\mt{Type}\}\} \to \{\mt{Type}\} \to \mt{Type} \\
-  \mt{val} \; \mt{sql\_order\_by\_Nil} : \mt{tables} ::: \{\{\mt{Type}\}\} \to \mt{exps} :: \{\mt{Type}\} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{exps} \\
+  \mt{con} \; \mt{sql\_order\_by} :: \{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\mt{Type}\} \to \mt{Type} \\
+  \mt{val} \; \mt{sql\_order\_by\_Nil} : \mt{tables} ::: \{\{\mt{Type}\}\} \to \mt{agg} ::: \{\{\mt{Type}\}\} \to \mt{exps} :: \{\mt{Type}\} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{agg} \; \mt{exps} \\
   \mt{val} \; \mt{sql\_order\_by\_Cons} : \mt{tf} ::: (\{\{\mt{Type}\}\} \to \{\{\mt{Type}\}\} \to \{\mt{Type}\} \to \mt{Type} \to \mt{Type}) \\
-  \hspace{.1in} \to \mt{tables} ::: \{\{\mt{Type}\}\} \to \mt{exps} ::: \{\mt{Type}\} \to \mt{t} ::: \mt{Type} \\
-  \hspace{.1in} \to \mt{sql\_window} \; \mt{tf} \to \mt{tf} \; \mt{tables} \; [] \; \mt{exps} \; \mt{t} \to \mt{sql\_direction} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{exps} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{exps} \\
-  \mt{val} \; \mt{sql\_order\_by\_random} : \mt{tables} ::: \{\{\mt{Type}\}\} \to \mt{exps} ::: \{\mt{Type}\} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{exps} \\
+  \hspace{.1in} \to \mt{tables} ::: \{\{\mt{Type}\}\} \to \mt{agg} ::: \{\{\mt{Type}\}\} \to \mt{exps} ::: \{\mt{Type}\} \to \mt{t} ::: \mt{Type} \\
+  \hspace{.1in} \to \mt{sql\_window} \; \mt{tf} \to \mt{tf} \; \mt{tables} \; \mt{agg} \; \mt{exps} \; \mt{t} \to \mt{sql\_direction} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{agg} \; \mt{exps} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{agg} \; \mt{exps} \\
+  \mt{val} \; \mt{sql\_order\_by\_random} : \mt{tables} ::: \{\{\mt{Type}\}\} \to \mt{agg} ::: \{\{\mt{Type}\}\} \to \mt{exps} ::: \{\mt{Type}\} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{agg} \; \mt{exps} \\
   \\
   \mt{type} \; \mt{sql\_limit} \\
   \mt{val} \; \mt{sql\_no\_limit} : \mt{sql\_limit} \\
@@ -1998,7 +2002,7 @@ $$\begin{array}{l}
   \hspace{.1in} \to \mt{t} ::: \mt{Type} \\
   \hspace{.1in} \to \mt{sql\_window\_function} \; \mt{tables} \; \mt{agg} \; \mt{exps} \; \mt{t} \\
   \hspace{.1in} \to \mt{sql\_partition} \; \mt{tables} \; \mt{agg} \; \mt{exps} \\
-  \hspace{.1in} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{exps} \\
+  \hspace{.1in} \to \mt{sql\_order\_by} \; \mt{tables} \; \mt{agg} \; \mt{exps} \\
   \hspace{.1in} \to \mt{sql\_expw} \; \mt{tables} \; \mt{agg} \; \mt{exps} \; \mt{t} \\
   \\
   \mt{val} \; \mt{sql\_window\_aggregate} : \mt{tables} ::: \{\{\mt{Type}\}\} \to \mt{agg} ::: \{\{\mt{Type}\}\} \to \mt{exps} ::: \{\mt{Type}\} \\

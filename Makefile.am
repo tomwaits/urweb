@@ -220,10 +220,10 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# must be a conscious, reviewed decision, not silent drift.
 	@echo "==> [tc 6/8] deepunif_red (#266 limitation still pinned red)"
 	(bin/urweb -tc -boot -noEmacs tests/deepunif_red 2>&1 | grep -q 'too-deep unification variable') || (echo "Test 'deepunif_red' failed: the verbatim urweb/urweb#266 shape no longer fails with the too-deep-unification-variable error -- the elaborator depth guard changed; review deliberately (fork issue #20)"; false)
-	@echo "==> [tc 7/8] obgroup      (#269: grouped/aggregate ORDER BY typecheck)"
-	bin/urweb -tc -boot -noEmacs tests/obgroup || (echo "Test 'obgroup' failed: a VALID ORDER BY (grouped column / aggregate / ungrouped query) no longer typechecks (urweb/urweb#269)"; false)
+	@echo "==> [tc 7/8] obgroup      (#269: grouped-column + SUM(col) aggregate ORDER BY typecheck)"
+	bin/urweb -tc -boot -noEmacs tests/obgroup || (echo "Test 'obgroup' failed: a VALID ORDER BY (grouped column / SUM-over-column aggregate -- the form the pre-#269 compiler rejected / ungrouped query) no longer typechecks (urweb/urweb#269)"; false)
 	@echo "==> [tc 8/8] obgroup_red  (#269: ungrouped ORDER BY column rejected)"
-	(! bin/urweb -tc -boot -noEmacs tests/obgroup_red >/dev/null 2>&1) || (echo "Test 'obgroup_red' failed: ORDER BY on a NON-grouped bare column typechecked -- the #269 fix regressed (Postgres rejects this SQL at runtime)"; false)
+	(bin/urweb -tc -boot -noEmacs tests/obgroup_red 2>&1 | grep -q '#OrderBy') || (echo "Test 'obgroup_red' failed: ORDER BY on a NON-grouped bare column did not fail with the #OrderBy grouped-set constraint -- either the #269 fix regressed (Postgres rejects this SQL at runtime) or the fixture broke for an unrelated reason"; false)
 	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
 	@# Set-Cookie response header.
 	@echo "==> [http 1/8] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
