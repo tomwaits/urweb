@@ -594,6 +594,13 @@ val sql_if_then_else : tables ::: {{Type}} -> agg ::: {{Type}} -> exps ::: {Type
 class sql_arith
 val sql_arith_int : sql_arith int
 val sql_arith_float : sql_arith float
+(* Decimal arithmetic performed by the database on the native numeric/decimal
+ * column.  On Postgres/MySQL +, -, * are EXACT; SQLite's TEXT numeric is
+ * float-approximate under arithmetic.  As with int/float, DIVISION rounding/scale
+ * is backend-dependent (Postgres carries a high scale, MySQL a small default).
+ * A result outside numeric's supported range (>35 integer or >30 fractional
+ * significant digits) fails loudly on read rather than being silently rounded. *)
+val sql_arith_numeric : sql_arith numeric
 val sql_arith_option : t ::: Type -> sql_arith t -> sql_arith (option t)
 
 con sql_unary :: Type -> Type -> Type

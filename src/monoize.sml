@@ -2603,6 +2603,7 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
 
           | L.EFfi ("Basis", "sql_arith_int") => ((L'.ERecord [], loc), fm)
           | L.EFfi ("Basis", "sql_arith_float") => ((L'.ERecord [], loc), fm)
+          | L.EFfi ("Basis", "sql_arith_numeric") => ((L'.ERecord [], loc), fm)
           | L.ECApp ((L.EFfi ("Basis", "sql_arith_option"), _), _) =>
             ((L'.EAbs ("_", (L'.TRecord [], loc), (L'.TRecord [], loc),
                        (L'.ERecord [], loc)), loc),
