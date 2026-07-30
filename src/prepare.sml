@@ -71,6 +71,20 @@ fun prepString (e, st) =
                     (case prepString' (e1, ss, n) of
                          NONE => NONE
                        | SOME (ss, n) => prepString' (e2, ss, n))
+                  (* Every recognized scalar `sqlifyX` injection is turned into a
+                     prepared-statement parameter here (doOne emits a `$N`/`?`
+                     placeholder). A query built only from literals, `strcat`, and
+                     these `sqlifyX` calls therefore ALWAYS prepares -- so the
+                     interpreted C literal-writers `uw_Basis_sqlifyX`
+                     (src/c/urweb.c) run ONLY for a query this pass leaves
+                     unprepared, i.e. one whose text is assembled at runtime
+                     (a dynamic-length WHERE/IN built by a fold, etc.) so that
+                     `prepString'` below returns NONE. Ordinary `{[value]}`
+                     injection never reaches them. The nullable-direct
+                     `sqlifyXN` variants are not emitted by codegen at all (only
+                     `sqlifyIntN`, folded away in mono_opt); both are kept as
+                     defensive completeness matching the int/string precedent and
+                     are correct by the shared quoted-literal structure. *)
                   | EFfiApp ("Basis", "sqlifyInt", [_]) => doOne Int
                   | EFfiApp ("Basis", "sqlifyFloat", [_]) => doOne Float
                   | EFfiApp ("Basis", "sqlifyString", [_]) => doOne String
