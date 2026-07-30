@@ -6,5 +6,6 @@ local
   $(SML_LIB)/basis/mlton.mlb
   $(SRC)/bg_thread.sig
   $(SRC)/bg_thread.mlton.sml
+  $(SRC)/fix_int_binary_set.sml
 in
 
