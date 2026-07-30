@@ -68,7 +68,14 @@ fun p_sql_type_base t =
       | Bool => "tinyint"
       | Time => "timestamp"
       | Blob => "longblob"
-      | Uuid => "char(36)"
+      (* Bare data_type, NOT "char(36)": this feeds the startup schema-structure
+       * check, which compares information_schema.columns.data_type. MySQL reports
+       * a CHAR(36) column's data_type as "char" (the length lives in column_type,
+       * not data_type), so this must be "char" -- exactly like the Char case
+       * above. Emitting "char(36)" made the check query `data_type = 'char(36)'`,
+       * which never matches, so every uuid table failed startup with "wrong
+       * column types". The DDL emitter (p_sql_type) still emits full char(36). *)
+      | Uuid => "char"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type_base t
