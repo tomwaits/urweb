@@ -271,6 +271,25 @@ val checkTimezone =
             \  }\n\
             \}\n")
 
+(* Ur/Web's [ord_string] compares with strcmp -- pure byte order (the monoize
+ * lowering of Basis.ord_string) -- while SQL ORDER BY / comparison on text
+ * columns uses the DATABASE collation.  Under any collation other than C /
+ * POSIX (e.g. en_US.UTF-8, a common initdb default) the two sort orders
+ * diverge silently (urweb/urweb#120).  Warn at startup unless datcollate is
+ * C, POSIX, or C.<charset> (glibc's C.UTF-8 is codepoint order, which equals
+ * byte order for UTF-8).  The robust deployment fix is to create the database
+ * with LC_COLLATE=C. *)
+val checkCollation =
+    string ("{\n\
+            \  res = PQexec(conn, \"SELECT datcollate FROM pg_database WHERE datname = current_database()\");\n\
+            \  if (res != NULL && PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) == 1) {\n\
+            \    const char *uw_collate = PQgetvalue(res, 0, 0);\n\
+            \    if (strcmp(uw_collate, \"C\") && strcmp(uw_collate, \"POSIX\") && strncmp(uw_collate, \"C.\", 2))\n\
+            \      fprintf(stderr, \"Warning: the database collation is '%s', not C/POSIX. Ur/Web compares strings bytewise (strcmp), while SQL ORDER BY and text comparisons use the database collation, so the two sort orders will diverge. Create the database with LC_COLLATE=C (or POSIX).\\n\", uw_collate);\n\
+            \  }\n\
+            \  if (res != NULL) PQclear(res);\n\
+            \}\n")
+
 fun init {dbstring, prepared = ss, tables, views, sequences} =
     box [if #persistent (currentProtocol ()) then
              box [string "static void uw_db_validate(uw_context ctx) {",
@@ -283,6 +302,8 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
                   checkTablesAndViews tables views,
                   newline,
                   checkTimezone,
+                  newline,
+                  checkCollation,
                   newline,
 
                   p_list_sep newline
