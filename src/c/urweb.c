@@ -3188,11 +3188,13 @@ char *uw_Basis_sqlifyTimeN(uw_context ctx, uw_Basis_time *t) {
 }
 
 /* timestamptz: the same absolute instant as time, but ALWAYS serialized in UTC
- * (gmtime_r on write, timegm on read).  Because both ends use UTC, and the DB
- * session is forced to UTC (see each backend's uw_client_init), the value never
- * passes through a server-local or database-session-zone conversion -- so the
- * server-vs-database skew that plagues the localtime-based `time` (issue #163)
- * cannot occur. */
+ * (gmtime_r on write, timegm on read) and SELF-DESCRIBING -- an explicit "+00"
+ * UTC offset is emitted and honored on read.  Because the value carries its zone
+ * and both ends use UTC, it never passes through a server-local or database-
+ * session-zone conversion, so the server-vs-database skew that plagues the
+ * localtime-based `time` (issue #163) cannot occur.  Belt-and-suspenders per
+ * backend: Postgres pins the session to UTC in uw_db_init; MySQL stores into a
+ * zone-agnostic `datetime` column (no session pin needed). */
 char *uw_Basis_sqlifyTimestamptz(uw_context ctx, uw_Basis_time t) {
   size_t len;
   char *r, *s;
@@ -3211,10 +3213,10 @@ char *uw_Basis_sqlifyTimestamptz(uw_context ctx, uw_Basis_time t) {
       }
     } else {
       if (t.microseconds) {
-        r = uw_malloc(ctx, len + 14);
+        r = uw_malloc(ctx, len + 20);
         sprintf(r, "'%s.%06u+00'", s, t.microseconds);
       } else {
-        r = uw_malloc(ctx, len + 7);
+        r = uw_malloc(ctx, len + 13);
         sprintf(r, "'%s+00'", s);
       }
     }
@@ -3238,10 +3240,12 @@ char *uw_Basis_ensqlTimestamptz(uw_context ctx, uw_Basis_time t) {
   if (gmtime_r(&t.seconds, &stm)) {
     uw_check_heap(ctx, TIMES_MAX);
     r = ctx->heap.front;
-    len = strftime(r, TIMES_MAX-7, TIME_FMT_PG, &stm);
+    len = strftime(r, TIMES_MAX-11, TIME_FMT_PG, &stm);
     ctx->heap.front += len;
-    sprintf(ctx->heap.front, ".%06u", t.microseconds);
-    ctx->heap.front += 8;
+    /* self-describing UTC: ".ffffff+00" (matches sqlifyTimestamptz, so bound and
+       inlined values compare equal as text on backends like SQLite). */
+    sprintf(ctx->heap.front, ".%06u+00", t.microseconds);
+    ctx->heap.front += 11;
     return r;
   } else
     return "<Invalid time>";
@@ -3262,28 +3266,43 @@ char *uw_Basis_attrifyTimestamptz(uw_context ctx, uw_Basis_time t) {
     return "<Invalid time>";
 }
 
-uw_Basis_time *uw_Basis_stringToTimestamptz(uw_context ctx, uw_Basis_string s) {
-  /* Parse with timegm (UTC), NOT mktime (server-local).  strptime consumes the
-     "YYYY-MM-DD HH:MM:SS" prefix; a trailing timezone offset (Postgres emits
-     "+00" under a UTC session) and fractional seconds are tolerated. */
+/* Parse "YYYY-MM-DD HH:MM:SS[.ffffff][{+,-}HH[[:]MM]]" as an absolute instant.
+   The wall-clock is UTC-anchored via timegm; a trailing numeric timezone offset
+   is subtracted so the recovered instant is correct even if the value did not
+   arrive in UTC (values normally carry "+00", but honoring any offset makes the
+   read robust to a non-UTC session or DateStyle).  Returns 1 on success. */
+static int uw_parse_timestamptz(uw_Basis_string s, uw_Basis_time *out) {
   struct tm stm = {};
   char *rest = strptime(s, TIME_FMT_PG, &stm);
+  time_t secs;
+  unsigned us = 0;
 
-  if (rest) {
-    uw_Basis_time *r = uw_malloc(ctx, sizeof(uw_Basis_time));
-    r->seconds = timegm(&stm);
-    r->microseconds = 0;
-    if (*rest == '.') {
-      const char *p = rest + 1;
-      unsigned us = 0;
-      int ndig = 0;
-      while (ndig < 6 && *p >= '0' && *p <= '9') { us = us*10 + (unsigned)(*p - '0'); p++; ndig++; }
-      while (ndig < 6) { us *= 10; ndig++; }
-      r->microseconds = us;
+  if (!rest)
+    return 0;
+  secs = timegm(&stm);
+  if (*rest == '.') {
+    const char *p = rest + 1;
+    int ndig = 0;
+    while (ndig < 6 && *p >= '0' && *p <= '9') { us = us*10 + (unsigned)(*p - '0'); p++; ndig++; }
+    while (ndig < 6) { us *= 10; ndig++; }
+    while (*p >= '0' && *p <= '9') p++;   /* ignore digits beyond microseconds */
+    rest = (char *)p;
+  }
+  if (*rest == '+' || *rest == '-') {
+    int sign = (*rest == '-') ? -1 : 1;
+    const char *p = rest + 1;
+    int oh = 0, om = 0;
+    if (p[0] >= '0' && p[0] <= '9' && p[1] >= '0' && p[1] <= '9') {
+      oh = (p[0]-'0')*10 + (p[1]-'0'); p += 2;
+      if (*p == ':') p++;
+      if (p[0] >= '0' && p[0] <= '9' && p[1] >= '0' && p[1] <= '9')
+        om = (p[0]-'0')*10 + (p[1]-'0');
     }
-    return r;
-  } else
-    return NULL;
+    secs -= sign * (oh*3600 + om*60);
+  }
+  out->seconds = secs;
+  out->microseconds = us;
+  return 1;
 }
 
 uw_Basis_time uw_Basis_timestamptzToTime(uw_context ctx, uw_Basis_timestamptz t) {
@@ -3621,22 +3640,10 @@ uw_Basis_time uw_Basis_stringToTime_error(uw_context ctx, uw_Basis_string s) {
 }
 
 uw_Basis_time uw_Basis_stringToTimestamptz_error(uw_context ctx, uw_Basis_string s) {
-  /* UTC parse (timegm), tolerating a trailing tz offset and fractional seconds. */
-  struct tm stm = {};
-  char *rest = strptime(s, TIME_FMT_PG, &stm);
-
-  if (rest) {
-    uw_Basis_time r = { timegm(&stm), 0 };
-    if (*rest == '.') {
-      const char *p = rest + 1;
-      unsigned us = 0;
-      int ndig = 0;
-      while (ndig < 6 && *p >= '0' && *p <= '9') { us = us*10 + (unsigned)(*p - '0'); p++; ndig++; }
-      while (ndig < 6) { us *= 10; ndig++; }
-      r.microseconds = us;
-    }
+  uw_Basis_time r;
+  if (uw_parse_timestamptz(s, &r))
     return r;
-  } else
+  else
     uw_error(ctx, FATAL, "Can't parse timestamptz: %s", uw_Basis_htmlifyString(ctx, s));
 }
 

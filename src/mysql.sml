@@ -41,7 +41,10 @@ fun p_sql_type t =
       | Time => "timestamp"
       | Blob => "longblob"
       | Uuid => "char(36)"
-      | Timestamptz => "datetime"
+      (* datetime(6): 6 fractional-second digits, so microseconds survive (parity
+         with Postgres/SQLite).  The schema check reads data_type = "datetime"
+         (no precision suffix), so p_sql_type_base stays "datetime". *)
+      | Timestamptz => "datetime(6)"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type t
@@ -737,7 +740,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                 zone-agnostic, so the instant round-trips with no session-zone skew. *)
                              string "struct tm t = {mt->second, mt->minute, mt->hour, mt->day, mt->month-1, mt->year - 1900, 0, 0, 0};",
                              newline,
-                             string "uw_Basis_time res = {timegm(&t), 0};",
+                             string "uw_Basis_time res = {timegm(&t), mt->second_part};",
                              newline,
                              string "res;",
                              newline,
@@ -1224,6 +1227,12 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                string (ErrorMsg.spanToString loc),
                                                                string ": error converting to MySQL timestamptz\");",
                                                                newline,
+                                                               string "in_buffer",
+                                                               string (Int.toString i),
+                                                               string ".second_part = arg",
+                                                               string (Int.toString (i + 1)),
+                                                               string ".microseconds;",
+                                                               newline,
                                                                oneField "year" "year + 1900",
                                                                box [string "in_buffer",
                                                                     string (Int.toString i),
@@ -1563,6 +1572,12 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                string ".seconds, &tms) == NULL) uw_error(ctx, FATAL, \"",
                                                                string (ErrorMsg.spanToString loc),
                                                                string ": error converting to MySQL timestamptz\");",
+                                                               newline,
+                                                               string "in_buffer",
+                                                               string (Int.toString i),
+                                                               string ".second_part = arg",
+                                                               string (Int.toString (i + 1)),
+                                                               string ".microseconds;",
                                                                newline,
                                                                oneField "year" "year + 1900",
                                                                oneField "month" "mon + 1",
