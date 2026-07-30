@@ -423,7 +423,10 @@ val skipped : t ::: Type -> index_mode t (* handy for building these description
 (*** Queries *)
 
 con sql_query :: {{Type}} -> {{Type}} -> {{Type}} -> {Type} -> Type
-con sql_query1 :: {{Type}} -> {{Type}} -> {{Type}} -> {{Type}} -> {Type} -> Type
+(* free, afree, tables, GROUPED, selectedFields, selectedExps: since the #269
+ * fix, a query1 carries its grouped tables in its type so ORDER BY can be
+ * checked against them (bare columns must be grouped; aggregates allowed). *)
+con sql_query1 :: {{Type}} -> {{Type}} -> {{Type}} -> {{Type}} -> {{Type}} -> {Type} -> Type
 
 con sql_subset :: {{Type}} -> {{Type}} -> Type
 val sql_subset : keep_drop :: {({Type} * {Type})}
@@ -505,7 +508,7 @@ val sql_query1 : free ::: {{Type}}
                      SelectFields : sql_subset grouped (map (fn _ => []) empties ++ selectedFields),
                      SelectExps : $(map (sql_expw (free ++ grouped) (afree ++ tables) [])
                                             selectedExps) }
-                 -> sql_query1 free afree tables selectedFields selectedExps
+                 -> sql_query1 free afree tables grouped selectedFields selectedExps
 
 type sql_relop
 val sql_union : sql_relop
@@ -515,16 +518,18 @@ val sql_relop : free ::: {{Type}}
                 -> afree ::: {{Type}}
                 -> tables1 ::: {{Type}}
                 -> tables2 ::: {{Type}}
+                -> grouped1 ::: {{Type}}
+                -> grouped2 ::: {{Type}}
                 -> selectedFields ::: {{Type}}
                 -> selectedExps ::: {Type}
                 -> sql_relop
                 -> bool (* ALL *)
-                -> sql_query1 free afree tables1 selectedFields selectedExps
-                -> sql_query1 free afree tables2 selectedFields selectedExps
-                -> sql_query1 free afree [] selectedFields selectedExps
-val sql_forget_tables : free ::: {{Type}} -> afree ::: {{Type}} -> tables ::: {{Type}} -> selectedFields ::: {{Type}} -> selectedExps ::: {Type}
-                        -> sql_query1 free afree tables selectedFields selectedExps
-                        -> sql_query1 free afree [] selectedFields selectedExps
+                -> sql_query1 free afree tables1 grouped1 selectedFields selectedExps
+                -> sql_query1 free afree tables2 grouped2 selectedFields selectedExps
+                -> sql_query1 free afree [] [] selectedFields selectedExps
+val sql_forget_tables : free ::: {{Type}} -> afree ::: {{Type}} -> tables ::: {{Type}} -> grouped ::: {{Type}} -> selectedFields ::: {{Type}} -> selectedExps ::: {Type}
+                        -> sql_query1 free afree tables grouped selectedFields selectedExps
+                        -> sql_query1 free afree [] [] selectedFields selectedExps
 
 type sql_direction
 val sql_asc : sql_direction
@@ -540,15 +545,18 @@ val sql_window : tf ::: ({{Type}} -> {{Type}} -> {Type} -> Type -> Type)
                  -> tf tables agg exps t
                  -> sql_expw tables agg exps t
 
-con sql_order_by :: {{Type}} -> {Type} -> Type
-val sql_order_by_Nil : tables ::: {{Type}} -> exps :: {Type} -> sql_order_by tables exps
-val sql_order_by_Cons : tf ::: ({{Type}} -> {{Type}} -> {Type} -> Type -> Type) -> tables ::: {{Type}} -> exps ::: {Type} -> t ::: Type
+(* tables, AGG, exps: since the #269 fix ORDER BY expressions type like Having
+ * -- bare columns come from the grouped set (passed as [tables] here by
+ * sql_query), and aggregates over the aggregate-visible set [agg]. *)
+con sql_order_by :: {{Type}} -> {{Type}} -> {Type} -> Type
+val sql_order_by_Nil : tables ::: {{Type}} -> agg ::: {{Type}} -> exps :: {Type} -> sql_order_by tables agg exps
+val sql_order_by_Cons : tf ::: ({{Type}} -> {{Type}} -> {Type} -> Type -> Type) -> tables ::: {{Type}} -> agg ::: {{Type}} -> exps ::: {Type} -> t ::: Type
                         -> sql_window tf
-                        -> tf tables [] exps t -> sql_direction
-                        -> sql_order_by tables exps
-                        -> sql_order_by tables exps
-val sql_order_by_random : tables ::: {{Type}} -> exps ::: {Type}
-                          -> sql_order_by tables exps
+                        -> tf tables agg exps t -> sql_direction
+                        -> sql_order_by tables agg exps
+                        -> sql_order_by tables agg exps
+val sql_order_by_random : tables ::: {{Type}} -> agg ::: {{Type}} -> exps ::: {Type}
+                          -> sql_order_by tables agg exps
 
 type sql_limit
 val sql_no_limit : sql_limit
@@ -561,11 +569,13 @@ val sql_offset : int -> sql_offset
 val sql_query : free ::: {{Type}}
                 -> afree ::: {{Type}}
                 -> tables ::: {{Type}}
+                -> grouped ::: {{Type}}
                 -> selectedFields ::: {{Type}}
                 -> selectedExps ::: {Type}
                 -> [free ~ tables]
-                => {Rows : sql_query1 free afree tables selectedFields selectedExps,
-                    OrderBy : sql_order_by (free ++ tables) selectedExps,
+                => [free ~ grouped]
+                => {Rows : sql_query1 free afree tables grouped selectedFields selectedExps,
+                    OrderBy : sql_order_by (free ++ grouped) (afree ++ tables) selectedExps,
                     Limit : sql_limit,
                     Offset : sql_offset}
                 -> sql_query free afree selectedFields selectedExps
@@ -741,7 +751,7 @@ val sql_window_function : tables ::: {{Type}} -> agg ::: {{Type}} -> exps ::: {T
                           -> t ::: Type
                           -> sql_window_function tables agg exps t
                           -> sql_partition tables agg exps
-                          -> sql_order_by tables exps
+                          -> sql_order_by tables agg exps
                           -> sql_expw tables agg exps t
 
 val sql_window_aggregate : tables ::: {{Type}} -> agg ::: {{Type}} -> exps ::: {Type}
