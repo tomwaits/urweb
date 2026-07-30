@@ -257,11 +257,19 @@ jobs:
   # feature missed a real bug (the schema check compared data_type against
   # "char(36)" instead of the bare "char" MySQL reports for a CHAR(36) column,
   # so every uuid table failed startup). This job compiles + runs tests/uuidtest
-  # against a live mysql:8.0, closing that gap. It mirrors postgres-integration.
+  # against a live mysql:8.0, closing that gap.
+  #
+  # Unlike postgres-integration it builds the compiler with the SYSTEM autotools
+  # toolchain, not nix: a nix-built binary cannot cleanly link the system
+  # libmysqlclient -- adding /usr to the link path drags system glibc into the
+  # binary's RUNPATH, which then mixes with nix's newer glibc (fatal
+  # `GLIBC_ABI_DT_X86_64_PLT not found`). An all-system build keeps libc,
+  # libmysqlclient and their deps consistent. (The nix-native alternative is to
+  # add mysql to derivation.nix so nix RPATHs the whole closure; deferred as it
+  # would cache-bust a cold rebuild of every job.) The MySQL codegen under test
+  # is identical regardless of which toolchain built the compiler.
   mysql-integration:
     name: mysql integration (runtime)
-    # Run after nix-build so the store cache is warm (see postgres-integration).
-    needs: nix-build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 90
     services:
@@ -285,49 +293,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: cachix/install-nix-action@v27
-
-      # Cache /nix/store across runs (see postgres-integration for rationale).
-      - uses: nix-community/cache-nix-action@v5
-        with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('default.nix', 'derivation.nix') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
-
-      - name: Build the compiler
-        run: nix-build
-
-      - name: Install MySQL client dev headers + CLI
+      - name: Install toolchain + MySQL client (Oracle libmysqlclient, not mariadb-compat)
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          # Oracle libmysqlclient, NOT the mariadb-compat package: urweb's
-          # generated code uses a bool-based MYSQL_BIND (is_null is `bool *`),
-          # which matches Oracle MySQL 8 headers. mariadb keeps `my_bool *`, so
-          # its headers would fail urweb's -Werror C compile on a pointer-type
-          # mismatch. mysql-client-8.0 gives an Oracle CLI whose
-          # --get-server-public-key can clear caching_sha2 for the bootstrap.
-          sudo apt-get install -y -qq libmysqlclient-dev mysql-client-8.0
-          command -v mysql_config >/dev/null \
-            || { echo "SETUP FAILED: mysql_config not found after install"; exit 1; }
+          # Oracle libmysqlclient, NOT the mariadb-compat default-libmysqlclient-dev:
+          # urweb's generated code uses a bool-based MYSQL_BIND (is_null is
+          # `bool *`), matching Oracle MySQL 8 headers; mariadb keeps `my_bool *`,
+          # which would fail urweb's -Werror C compile on a pointer-type mismatch.
+          # mysql-client-8.0 is the Oracle CLI (schema load + a
+          # --get-server-public-key that clears caching_sha2 for the bootstrap).
+          sudo apt-get install -y -qq \
+            mlton build-essential automake autoconf libtool pkg-config \
+            libssl-dev libicu-dev libpq-dev libsqlite3-dev \
+            libmysqlclient-dev mysql-client-8.0
           test -f /usr/include/mysql/mysql.h \
             || { echo "SETUP FAILED: mysql.h not found after install"; exit 1; }
-          echo "mysql_config --version: $(mysql_config --version)"
-          echo "mysql_config --include: $(mysql_config --include)"
+
+      - name: Build the compiler (autotools, system toolchain)
+        run: |
+          set -euo pipefail
+          # configure auto-detects MySQL and bakes MSHEADER=mysql/mysql.h, so the
+          # generated C's #include <mysql/mysql.h> resolves on the system gcc's
+          # default include path -- no -I/-L needed at app-compile time.
+          ./autogen.sh
+          ./configure
+          make -j"$(nproc)"
+          sudo make install
+          urweb -version
 
       - name: Bootstrap a mysql_native_password app user
         run: |
           set -euo pipefail
-          # The urweb runtime sets no mysql_options, so it connects ssl-mode
-          # PREFERRED. Against mysql:8.0 (TLS on by default) a caching_sha2 user
-          # would work too -- the password travels inside TLS, no RSA public key
-          # needed. We nonetheless give the app a mysql_native_password user so
-          # its authentication does NOT depend on that TLS handshake: if PREFERRED
-          # falls back to plaintext, native_password still authenticates, whereas
-          # caching_sha2 would then require the RSA public key the runtime never
-          # requests. That deliberately decouples the app's auth from the single
-          # least-tested link in CI -- nix's OpenSSL vs the system OpenSSL that
-          # system libmysqlclient pulls in. The CLI's own root connection uses TLS
-          # (with --get-server-public-key as a plaintext-fallback) to run the GRANT.
+          # mysql:8.0's root uses caching_sha2_password. Against mysql:8.0's
+          # default TLS a caching_sha2 user works (password travels inside TLS),
+          # but we give the app a mysql_native_password user so its authentication
+          # does not depend on the TLS handshake: if the connection falls back to
+          # plaintext, native_password still authenticates, whereas caching_sha2
+          # would then require an RSA public key the urweb runtime never requests.
+          # The CLI's own root connection uses TLS (with --get-server-public-key
+          # as a plaintext fallback) to run the GRANT.
           mysql --get-server-public-key -h 127.0.0.1 -P 3306 -uroot -proot -e "
             CREATE USER IF NOT EXISTS 'urweb'@'%' IDENTIFIED WITH mysql_native_password BY 'urweb';
             GRANT ALL PRIVILEGES ON urwebtest.* TO 'urweb'@'%';
@@ -339,55 +344,9 @@ jobs:
         run: |
           set -euo pipefail
           DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
-          MYSQL_INC="$(mysql_config --include)"                       # -I/usr/include/mysql
-          MYSQL_INCDIR="${MYSQL_INC#-I}"                              # /usr/include/mysql
-          MYSQL_INCPARENT="$(dirname "$MYSQL_INCDIR")"                # /usr/include
-          # Capture the .so path first and guard on IT: `dirname ""` yields "."
-          # (a valid dir), so guarding the dirname would silently accept a
-          # not-found result and pass a bogus `-L.`. -print -quit stops at the
-          # first match (no `| head`, so no SIGPIPE under pipefail).
-          MYSQL_SO="$(find /usr/lib -name 'libmysqlclient.so' -print -quit)"
-          test -n "$MYSQL_SO" \
-            || { echo "SETUP FAILED: libmysqlclient.so not found under /usr/lib"; exit 1; }
-          MYSQL_LIBDIR="$(dirname "$MYSQL_SO")"
-          # Runtime linking: the nix-built binary uses nix's dynamic linker, which
-          # ignores /etc/ld.so.cache, and DT_RUNPATH is not transitive -- so the
-          # system libmysqlclient's OWN deps (libz, libstdc++, ...) are unresolved
-          # at run time ("error while loading shared libraries: libz.so.1"). Point
-          # LD_LIBRARY_PATH at a curated farm of exactly libmysqlclient's
-          # non-glibc-core transitive deps. Deliberately EXCLUDE libc/libm/ld-linux:
-          # nix must own those (they are shared by soname with the binary's direct
-          # deps, and forcing a system glibc under nix's interpreter would break).
-          # GITHUB_ENV carries LD_LIBRARY_PATH to the negative-test step, which also
-          # runs the binary. (Cleaner long-term: provide mysql via derivation.nix so
-          # nix RPATHs the whole closure; done here in-job to avoid a cache-busting
-          # rebuild of every job. See PR discussion.)
-          MYSQL_RT_LIBS="$RUNNER_TEMP/mysql-runtime-libs"
-          mkdir -p "$MYSQL_RT_LIBS"
-          for so in libz.so.1 libzstd.so.1 libssl.so.3 libcrypto.so.3 libstdc++.so.6 libgcc_s.so.1 libresolv.so.2; do
-            src="$(find /usr/lib /lib -name "$so" -print -quit)"
-            if [ -n "$src" ]; then ln -sf "$src" "$MYSQL_RT_LIBS/$so"; fi
-          done
-          export LD_LIBRARY_PATH="$MYSQL_RT_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
-          # The nix-baked gcc does not search system /usr paths, and MSHEADER
-          # baked into the nix-built compiler is "mysql.h" (mysql absent at nix
-          # configure), so the generated #include <mysql.h> needs -I on the mysql
-          # include dir. But MySQL 8's own headers then do quoted internal
-          # includes like #include "mysql/udf_registration_types.h", which resolve
-          # against the PARENT (/usr/include), not /usr/include/mysql. System gcc
-          # has /usr/include on its default path (so a plain autotools build works
-          # with only -I/usr/include/mysql); the nix gcc does not, so the parent
-          # must be added too -- via -idirafter (lowest priority) so nix's own
-          # libc headers still win and only the mysql-internal headers fall back
-          # to /usr/include. -ccopt's value reaches BOTH the C compile (finds the
-          # headers) and the link (finds -lmysqlclient), so one flag wires up all.
-          # NIX_ENFORCE_PURITY=0 tells the nix cc-wrapper to accept these
-          # deliberate system (/usr) include/lib paths instead of filtering them.
-          export NIX_ENFORCE_PURITY=0
-          result/bin/urweb -dbms mysql -db "$DB" \
-            -ccopt "-O2 $MYSQL_INC -idirafter $MYSQL_INCPARENT -L$MYSQL_LIBDIR" \
-            -sql tests/uuidtest.sql tests/uuidtest
+          # System gcc finds mysql/mysql.h and libmysqlclient on its default
+          # paths, so the compile needs no extra include/lib flags.
+          urweb -dbms mysql -db "$DB" -sql tests/uuidtest.sql tests/uuidtest
           echo "=== emitted schema ==="; cat tests/uuidtest.sql
           # uuid maps to MySQL char(36) (its canonical 8-4-4-4-12 text form), for
           # both the primary key and the NULLABLE Ref column.
@@ -397,11 +356,6 @@ jobs:
             || { echo "uuid FAILED: nullable Ref column is not char(36) on MySQL"; exit 1; }
           # Load the urweb-generated schema.
           mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/uuidtest.sql
-          # Diagnostics: LD_LIBRARY_PATH farm contents + full dynamic-link
-          # resolution of the nix binary (any "not found" here pinpoints a
-          # missing transitive dep before the run).
-          echo "=== LD_LIBRARY_PATH=$LD_LIBRARY_PATH ==="; ls -l "$MYSQL_RT_LIBS"
-          echo "=== ldd tests/uuidtest.exe ==="; ldd tests/uuidtest.exe || true
           # Run the standalone server: startup performs the #230 schema-structure
           # check against the loaded schema before serving. This is the exact
           # check that rejected char(36) uuid tables until the p_sql_type_base fix
