@@ -44,6 +44,7 @@ fun p_sql_type t =
       | Time => "timestamp"
       | Blob => "bytea"
       | Uuid => "uuid"
+      | Timestamptz => "timestamptz"
       | Channel => "int8"
       | Client => "int4"
       | Nullable t => p_sql_type t
@@ -58,6 +59,7 @@ fun p_sql_type_base t =
       | Time => "timestamp without time zone"
       | Blob => "bytea"
       | Uuid => "uuid"
+      | Timestamptz => "timestamp with time zone"
       | Channel => "bigint"
       | Client => "integer"
       | Nullable t => p_sql_type_base t
@@ -533,6 +535,33 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
          newline,
          string "uw_db_validate(ctx);",
          newline,
+         (* Pin this connection's session to UTC so timestamptz values are read
+          * back in UTC (matching how they are written), making them immune to
+          * the session-zone skew of #163.  Placed AFTER uw_db_validate so the
+          * #163 checkTimezone warning still observes the original session zone
+          * (legacy `time` behavior is unchanged; only timestamptz relies on
+          * this).  `timestamp without time zone` columns are zone-agnostic, so
+          * legacy `time` round-trips are unaffected by the session zone. *)
+         string "{",
+         newline,
+         string "PGresult *tzres = PQexec(conn, \"SET TIME ZONE 'UTC'\");",
+         newline,
+         string "if (tzres == NULL) { PQfinish(conn); uw_error(ctx, FATAL, \"Out of memory setting the UTC session time zone.\"); }",
+         newline,
+         string "if (PQresultStatus(tzres) != PGRES_COMMAND_OK) {",
+         newline,
+         string "char tzmsg[1024]; strncpy(tzmsg, PQerrorMessage(conn), 1024); tzmsg[1023] = 0;",
+         newline,
+         string "PQclear(tzres); PQfinish(conn);",
+         newline,
+         string "uw_error(ctx, FATAL, \"Failed to set the UTC session time zone (needed by timestamptz): %s\", tzmsg);",
+         newline,
+         string "}",
+         newline,
+         string "PQclear(tzres);",
+         newline,
+         string "}",
+         newline,
          string "uw_db_prepare(ctx);",
          newline,
          string "}"]
@@ -551,6 +580,7 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
               | Char => box [e, string "[0]"]
               | Bool => box [string "uw_Basis_stringToBool_error(ctx, ", e, string ")"]
               | Time => box [string "uw_Basis_unsqlTime(ctx, ", e, string ")"]
+              | Timestamptz => box [string "uw_Basis_stringToTimestamptz_error(ctx, ", e, string ")"]
               | Blob => box [string "uw_Basis_stringToBlob_error(ctx, ",
                              e,
                              string ", ",
@@ -726,6 +756,7 @@ fun p_ensql t e =
       | Char => box [string "uw_Basis_attrifyChar(ctx, ", e, string ")"]
       | Bool => box [string "(", e, string " ? \"TRUE\" : \"FALSE\")"]
       | Time => box [string "uw_Basis_ensqlTime(ctx, ", e, string ")"]
+      | Timestamptz => box [string "uw_Basis_ensqlTimestamptz(ctx, ", e, string ")"]
       | Blob => box [e, string ".data"]
       | Channel => box [string "uw_Basis_attrifyChannel(ctx, ", e, string ")"]
       | Client => box [string "uw_Basis_attrifyClient(ctx, ", e, string ")"]

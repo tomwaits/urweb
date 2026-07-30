@@ -41,6 +41,7 @@ fun p_sql_type t =
       | Time => "timestamp"
       | Blob => "longblob"
       | Uuid => "char(36)"
+      | Timestamptz => "datetime"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type t
@@ -55,6 +56,12 @@ fun p_buffer_type t =
       | Time => "MYSQL_TYPE_TIMESTAMP"
       | Blob => "MYSQL_TYPE_BLOB"
       | Uuid => "MYSQL_TYPE_STRING"
+      (* MYSQL_TYPE_TIMESTAMP (like Time), NOT MYSQL_TYPE_DATETIME: the client
+         binds MYSQL_TIME by this buffer type and MYSQL_TYPE_TIMESTAMP works
+         without an explicit time_type field.  The COLUMN is a zone-agnostic
+         `datetime`, so no server-side session-zone conversion happens; the UTC
+         broken-down value is stored literally, keeping the round-trip skew-free. *)
+      | Timestamptz => "MYSQL_TYPE_TIMESTAMP"
       | Channel => "MYSQL_TYPE_LONGLONG"
       | Client => "MYSQL_TYPE_LONG"
       | Nullable t => p_buffer_type t
@@ -76,6 +83,7 @@ fun p_sql_type_base t =
        * which never matches, so every uuid table failed startup with "wrong
        * column types". The DDL emitter (p_sql_type) still emits full char(36). *)
       | Uuid => "char"
+      | Timestamptz => "datetime"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type_base t
@@ -719,6 +727,21 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                              string "res;",
                              newline,
                              string "})"]
+              | Timestamptz => box [string "({",
+                             string "MYSQL_TIME *mt = &buffer",
+                             string (Int.toString i),
+                             string ";",
+                             newline,
+                             newline,
+                             (* UTC read (timegm), matching the UTC write: the datetime column is
+                                zone-agnostic, so the instant round-trips with no session-zone skew. *)
+                             string "struct tm t = {mt->second, mt->minute, mt->hour, mt->day, mt->month-1, mt->year - 1900, 0, 0, 0};",
+                             newline,
+                             string "uw_Basis_time res = {timegm(&t), 0};",
+                             newline,
+                             string "res;",
+                             newline,
+                             string "})"]
               | Channel => box [string "({",
                                 string "uw_Basis_channel ch = {buffer",
                                 string (Int.toString i),
@@ -796,6 +819,10 @@ fun queryCommon {loc, query, cols, doCols} =
                                                                    string ";",
                                                                    newline]
                                                     | Time => box [string "MYSQL_TIME buffer",
+                                                                   string (Int.toString i),
+                                                                   string ";",
+                                                                   newline]
+                                                    | Timestamptz => box [string "MYSQL_TIME buffer",
                                                                    string (Int.toString i),
                                                                    string ";",
                                                                    newline]
@@ -997,7 +1024,14 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                    newline]
                                                     | Time => box [string "MYSQL_TIME in_buffer",
                                                                    string (Int.toString i),
-                                                                   string ";",
+                                                                   (* zero-init + time_type: MySQL 8 rejects a MYSQL_TIME whose
+                                                                      time_type/second_part are uninitialized garbage (the
+                                                                      MYSQL_BIND array is memset but these structs were not). *)
+                                                                   string " = { .time_type = MYSQL_TIMESTAMP_DATETIME };",
+                                                                   newline]
+                                                    | Timestamptz => box [string "MYSQL_TIME in_buffer",
+                                                                   string (Int.toString i),
+                                                                   string " = { .time_type = MYSQL_TIMESTAMP_DATETIME };",
                                                                    newline]
                                                     | _ => box []
                                           in
@@ -1146,6 +1180,49 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                string ".seconds, &tms) == NULL) uw_error(ctx, FATAL, \"",
                                                                string (ErrorMsg.spanToString loc),
                                                                string ": error converting to MySQL time\");",
+                                                               newline,
+                                                               oneField "year" "year + 1900",
+                                                               box [string "in_buffer",
+                                                                    string (Int.toString i),
+                                                                    string ".month = tms.tm_mon + 1;",
+                                                                    newline],
+                                                               oneField "day" "mday",
+                                                               oneField "hour" "hour",
+                                                               oneField "minute" "min",
+                                                               oneField "second" "sec",
+                                                               newline,
+                                                               string "in[",
+                                                               string (Int.toString i),
+                                                               string "].buffer = &in_buffer",
+                                                               string (Int.toString i),
+                                                               string ";",
+                                                               newline,
+                                                               string "});",
+                                                               newline]
+                                                      end
+                                                    | Timestamptz =>
+                                                      (* UTC write (gmtime_r), matching the UTC read: the datetime column is
+                                                         zone-agnostic, so the instant round-trips with no session-zone skew. *)
+                                                      let
+                                                          fun oneField dst src =
+                                                              box [string "in_buffer",
+                                                                   string (Int.toString i),
+                                                                   string ".",
+                                                                   string dst,
+                                                                   string " = tms.tm_",
+                                                                   string src,
+                                                                   string ";",
+                                                                   newline]
+                                                      in
+                                                          box [string "({",
+                                                               newline,
+                                                               string "struct tm tms;",
+                                                               newline,
+                                                               string "if (gmtime_r(&arg",
+                                                               string (Int.toString (i + 1)),
+                                                               string ".seconds, &tms) == NULL) uw_error(ctx, FATAL, \"",
+                                                               string (ErrorMsg.spanToString loc),
+                                                               string ": error converting to MySQL timestamptz\");",
                                                                newline,
                                                                oneField "year" "year + 1900",
                                                                box [string "in_buffer",
@@ -1320,7 +1397,13 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                    newline]
                                                     | Time => box [string "MYSQL_TIME in_buffer",
                                                                    string (Int.toString i),
-                                                                   string ";",
+                                                                   (* zero-init + time_type: MySQL 8 rejects a MYSQL_TIME whose
+                                                                      time_type/second_part are uninitialized garbage. *)
+                                                                   string " = { .time_type = MYSQL_TIMESTAMP_DATETIME };",
+                                                                   newline]
+                                                    | Timestamptz => box [string "MYSQL_TIME in_buffer",
+                                                                   string (Int.toString i),
+                                                                   string " = { .time_type = MYSQL_TIMESTAMP_DATETIME };",
                                                                    newline]
                                                     | Channel => box [string "unsigned long long in_buffer",
                                                                       string (Int.toString i),
@@ -1441,6 +1524,45 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                string ".seconds, &tms) == NULL) uw_error(ctx, FATAL, \"",
                                                                string (ErrorMsg.spanToString loc),
                                                                string ": error converting to MySQL time\");",
+                                                               newline,
+                                                               oneField "year" "year + 1900",
+                                                               oneField "month" "mon + 1",
+                                                               oneField "day" "mday",
+                                                               oneField "hour" "hour",
+                                                               oneField "minute" "min",
+                                                               oneField "second" "sec",
+                                                               newline,
+                                                               string "in[",
+                                                               string (Int.toString i),
+                                                               string "].buffer = &in_buffer",
+                                                               string (Int.toString i),
+                                                               string ";",
+                                                               newline,
+                                                               string "});",
+                                                               newline]
+                                                      end
+                                                    | Timestamptz =>
+                                                      (* UTC write (gmtime_r); datetime column is zone-agnostic -> skew-free. *)
+                                                      let
+                                                          fun oneField dst src =
+                                                              box [string "in_buffer",
+                                                                   string (Int.toString i),
+                                                                   string ".",
+                                                                   string dst,
+                                                                   string " = tms.tm_",
+                                                                   string src,
+                                                                   string ";",
+                                                                   newline]
+                                                      in
+                                                          box [string "({",
+                                                               newline,
+                                                               string "struct tm tms;",
+                                                               newline,
+                                                               string "if (gmtime_r(&arg",
+                                                               string (Int.toString (i + 1)),
+                                                               string ".seconds, &tms) == NULL) uw_error(ctx, FATAL, \"",
+                                                               string (ErrorMsg.spanToString loc),
+                                                               string ": error converting to MySQL timestamptz\");",
                                                                newline,
                                                                oneField "year" "year + 1900",
                                                                oneField "month" "mon + 1",
