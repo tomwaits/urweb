@@ -1392,6 +1392,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                      string (Int.toString i),
                                                                      string ";",
                                                                      newline]
+                                                    | Uuid => buffers String
                                                     | Blob => box [string "in[",
                                                                    string (Int.toString i),
                                                                    string "].buffer = arg",
