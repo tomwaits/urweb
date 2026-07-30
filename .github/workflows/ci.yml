@@ -335,19 +335,28 @@ jobs:
           set -euo pipefail
           DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
           MYSQL_INC="$(mysql_config --include)"                       # -I/usr/include/mysql
+          MYSQL_INCDIR="${MYSQL_INC#-I}"                              # /usr/include/mysql
+          MYSQL_INCPARENT="$(dirname "$MYSQL_INCDIR")"                # /usr/include
           MYSQL_LIBDIR="$(dirname "$(find /usr/lib -name 'libmysqlclient.so' | head -1)")"
           test -n "$MYSQL_LIBDIR" -a -d "$MYSQL_LIBDIR" \
             || { echo "SETUP FAILED: could not locate libmysqlclient.so directory"; exit 1; }
           # The nix-baked gcc does not search system /usr paths, and MSHEADER
           # baked into the nix-built compiler is "mysql.h" (mysql absent at nix
-          # configure), so the generated #include <mysql.h> needs an explicit -I.
-          # -ccopt's value reaches BOTH the C compile (finds mysql.h) and the
-          # link (finds -lmysqlclient), so one flag wires up both.
+          # configure), so the generated #include <mysql.h> needs -I on the mysql
+          # include dir. But MySQL 8's own headers then do quoted internal
+          # includes like #include "mysql/udf_registration_types.h", which resolve
+          # against the PARENT (/usr/include), not /usr/include/mysql. System gcc
+          # has /usr/include on its default path (so a plain autotools build works
+          # with only -I/usr/include/mysql); the nix gcc does not, so the parent
+          # must be added too -- via -idirafter (lowest priority) so nix's own
+          # libc headers still win and only the mysql-internal headers fall back
+          # to /usr/include. -ccopt's value reaches BOTH the C compile (finds the
+          # headers) and the link (finds -lmysqlclient), so one flag wires up all.
           # NIX_ENFORCE_PURITY=0 tells the nix cc-wrapper to accept these
           # deliberate system (/usr) include/lib paths instead of filtering them.
           export NIX_ENFORCE_PURITY=0
           result/bin/urweb -dbms mysql -db "$DB" \
-            -ccopt "-O2 $MYSQL_INC -L$MYSQL_LIBDIR" \
+            -ccopt "-O2 $MYSQL_INC -idirafter $MYSQL_INCPARENT -L$MYSQL_LIBDIR" \
             -sql tests/uuidtest.sql tests/uuidtest
           echo "=== emitted schema ==="; cat tests/uuidtest.sql
           # uuid maps to MySQL char(36) (its canonical 8-4-4-4-12 text form), for
