@@ -484,6 +484,42 @@ jobs:
           fi
           echo "startup-check-rejects-drift: PASS (binary refused the drifted schema)"
 
+      - name: Startup warns on a non-C database collation (#120)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          # Ur/Web's ord_string is strcmp (byte order); SQL ORDER BY uses the
+          # database default collation. The startup check must WARN for a libc
+          # en_US.utf8 database AND for an ICU-provider database (PG15+: the
+          # governing locale lives in daticulocale/datlocale, datcollate is
+          # vestigial), and stay SILENT for libc C (the vacuity guard).
+          # Each app is compiled to its OWN binary with -output so the shared
+          # tests/pgtest.exe (baked against urwebtest for earlier steps) is
+          # never clobbered.
+          ADMIN="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          psql "$ADMIN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE coll_utf8 LC_COLLATE 'en_US.utf8' LC_CTYPE 'en_US.utf8' TEMPLATE template0;"
+          psql "$ADMIN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE coll_c LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
+          psql "$ADMIN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE coll_icu LOCALE_PROVIDER icu ICU_LOCALE 'en-US' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
+          for db in coll_utf8 coll_c coll_icu; do
+            DB="host=localhost port=5432 dbname=$db user=postgres password=postgres"
+            result/bin/urweb -dbms postgres -db "$DB" -sql /tmp/coll.$db.sql -output /tmp/coll.$db.exe tests/pgtest
+            psql "$DB" -v ON_ERROR_STOP=1 -f /tmp/coll.$db.sql
+            /tmp/coll.$db.exe -q -a 127.0.0.1 -p 8111 2>/tmp/coll.$db.stderr & pid=$!
+            sleep 3
+            kill -0 "$pid" || { echo "COLLATION FAILED: server against $db died at startup"; cat /tmp/coll.$db.stderr; exit 1; }
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            echo "=== stderr against $db ==="; cat /tmp/coll.$db.stderr || true
+          done
+          grep -qi 'not bytewise' /tmp/coll.coll_utf8.stderr \
+            || { echo "COLLATION FAILED: no warning against an en_US.utf8 (libc) database (urweb/urweb#120)"; exit 1; }
+          grep -qi 'not bytewise' /tmp/coll.coll_icu.stderr \
+            || { echo "COLLATION FAILED: no warning against an ICU-provider database -- the provider-aware half of the check regressed (urweb/urweb#120)"; exit 1; }
+          ! grep -qi 'not bytewise' /tmp/coll.coll_c.stderr \
+            || { echo "COLLATION FAILED: warned against a libc C-collation database -- check is over-eager (urweb/urweb#120)"; exit 1; }
+          echo "collation-warning: PASS (warns on en_US.utf8 + ICU, silent on C)"
+
   # MySQL RUNTIME integration. Before this job the MySQL backend had NO runtime
   # coverage: nix-build tests only sqlite, postgres-integration only postgres.
   # The whole `-dbms mysql` path -- DDL, prepared statements, the #230 startup
