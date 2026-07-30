@@ -8,7 +8,7 @@
   libtool,
   linkFarm,
   makeBinaryWrapper,
-  mlton20210117,
+  mlton,
   openssl,
   pkg-config,
   postgresql,
@@ -45,7 +45,7 @@ stdenv.mkDerivation (finalAttrs: {
     autoconf
     automake
     libtool
-    mlton20210117
+    mlton
     pkg-config
   ];
 
