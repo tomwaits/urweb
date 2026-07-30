@@ -438,8 +438,16 @@ end
 structure SS = BinarySetFn(SK)
 structure SM = BinaryMapFn(SK)
 
+(* urweb/urweb#133: every file consulted while parsing a project -- each .urp
+ * opened (incl. transitive libraries via pu's recursion) and each
+ * file-content directive (notFoundPage, file, jsFile, mimeTypes) -- is
+ * recorded here so the daemon's whole-output cache can fingerprint the TRUE
+ * input set. Cleared at the start of each top-level parse. *)
+val parsedFiles : string list ref = ref []
+
 fun parseUrp' accLibs fname =
     (lastUrp := fname;
+     parsedFiles := [];
      if not (Posix.FileSys.access (fname ^ ".urp", []) orelse Posix.FileSys.access (fname ^ "/lib.urp", []))
         andalso Posix.FileSys.access (fname ^ ".ur", []) then
          let
@@ -499,6 +507,7 @@ fun parseUrp' accLibs fname =
                      val thisPath = OS.Path.dir filename
 
                      val dir = OS.Path.dir filename
+                     val () = parsedFiles := OS.Path.joinBaseExt {base = filename, ext = SOME "urp"} :: !parsedFiles
                      fun opener () = FileIO.txtOpenIn (OS.Path.joinBaseExt {base = filename, ext = SOME "urp"})
 
                      val inf = opener ()
@@ -921,6 +930,7 @@ fun parseUrp' accLibs fname =
                                       * contain '#' (which the .urp line reader
                                       * would otherwise treat as a comment). *)
                                      (let
+                                          val () = parsedFiles := relifyA arg :: !parsedFiles
                                           val inf = TextIO.openIn (relifyA arg)
                                           val contents = TextIO.inputAll inf
                                       in
@@ -960,12 +970,14 @@ fun parseUrp' accLibs fname =
                                    | "html5" => Settings.setIsHtml5 true
                                    | "xhtml" => Settings.setIsHtml5 false
                                    | "lessSafeFfi" => Settings.setLessSafeFfi true
-                                   | "mimeTypes" => Settings.setMimeFilePath (relify arg)
+                                   | "mimeTypes" => (parsedFiles := relify arg :: !parsedFiles;
+                                                     Settings.setMimeFilePath (relify arg))
 
                                    | "file" =>
                                      (case String.fields Char.isSpace arg of
                                           uri :: fname :: rest =>
                                           (Settings.setFilePath thisPath;
+                                           parsedFiles := OS.Path.mkAbsolute {path = pathify fname, relativeTo = thisPath} :: !parsedFiles;
                                            Settings.addFile {Uri = uri,
                                                              LoadFromFilename = pathify fname,
                                                              MimeType = case rest of
@@ -978,6 +990,7 @@ fun parseUrp' accLibs fname =
 
                                    | "jsFile" =>
                                      (Settings.setFilePath thisPath;
+                                      parsedFiles := OS.Path.mkAbsolute {path = pathify arg, relativeTo = thisPath} :: !parsedFiles;
                                       Settings.addJsFile (pathify arg))
 
                                    | _ => ErrorMsg.error ("Unrecognized command '" ^ cmd ^ "'");

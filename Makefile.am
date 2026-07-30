@@ -346,9 +346,10 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	(curl -s 'http://localhost:8090/Postcommit/check' | grep -q 'CHECK:r1=okrow,r2=failrow,cb=True') || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: post-COMMIT contract broken -- expected both rows durable (no bogus ROLLBACK), the ok callback run, and a live server (urweb/urweb#273 / #110)"; false)
 	kill `cat $(TESTPID)`
 	@# urweb/urweb#133: the compile daemon's whole-output cache. An unchanged
-	@# project must be a cache hit (the marker line, near-instant); touching a
-	@# source must invalidate (no marker). Runs in a scratch dir (the daemon
-	@# binds .urweb_daemon in its CWD).
+	@# project must be a cache hit (the marker line, near-instant); a CONTENT
+	@# edit must invalidate (no marker) -- while a bare `touch` (mtime-only,
+	@# identical bytes) must still HIT, because the fingerprint is a content
+	@# hash. Runs in a scratch dir (the daemon binds .urweb_daemon in its CWD).
 	@echo "==> [daemoncache] unchanged project skips the pipeline; touch invalidates (#133)"
 	rm -rf $(DCACHEDIR); mkdir -p $(DCACHEDIR)
 	printf 'fun main () : transaction page = return <xml><body>Hello</body></xml>\n' > $(DCACHEDIR)/hello.ur
@@ -357,10 +358,26 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	sleep 1
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: cold compile through the daemon failed (urweb/urweb#133)"; false)
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello | grep -q 'daemon cache hit') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: unchanged project did not hit the cache (urweb/urweb#133)"; false)
-	sleep 1
 	touch $(DCACHEDIR)/hello.ur
-	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a TOUCHED source still hit the cache -- stale-serve hazard (urweb/urweb#133)"; false)
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello | grep -q 'daemon cache hit') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: an mtime-only touch (identical content) MISSED -- the fingerprint regressed from content hashing to stamps (urweb/urweb#133)"; false)
+	printf 'fun main () : transaction page = return <xml><body>HELLO</body></xml>\n' > $(DCACHEDIR)/hello.ur
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a CONTENT edit still hit the cache -- stale-serve hazard (urweb/urweb#133)"; false)
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello | grep -q 'daemon cache hit') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: cache did not re-arm after the recompile (urweb/urweb#133)"; false)
+	@# Library staleness (the review's BLOCKER-1 repro): editing a LIBRARY source
+	@# -- same byte length, no sleep, so mtime granularity cannot save us; only
+	@# the content hash can -- must MISS and the rebuilt exe must contain the new
+	@# string.
+	mkdir -p $(DCACHEDIR)/mylib
+	printf 'val v : string\n' > $(DCACHEDIR)/mylib/src.urs
+	printf 'val v = "LIBV1"\n' > $(DCACHEDIR)/mylib/src.ur
+	printf 'src\n' > $(DCACHEDIR)/mylib/lib.urp
+	printf 'library mylib\n\nlibmain\n' > $(DCACHEDIR)/libmain.urp
+	printf 'fun main () : transaction page = return <xml><body>{[Src.v]}</body></xml>\n' > $(DCACHEDIR)/libmain.ur
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: library project cold compile failed (urweb/urweb#133)"; false)
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | grep -q 'daemon cache hit') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: unchanged library project did not hit (urweb/urweb#133)"; false)
+	printf 'val v = "LIBV2"\n' > $(DCACHEDIR)/mylib/src.ur
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a LIBRARY source edit hit the cache -- stale-serve (urweb/urweb#133 review BLOCKER-1)"; false)
+	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV2') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: rebuilt exe still contains the OLD library string (urweb/urweb#133)"; false)
 	-cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
