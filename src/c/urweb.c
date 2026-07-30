@@ -3048,6 +3048,14 @@ static uw_Basis_string uw_normalize_numeric(uw_context ctx, uw_Basis_string s) {
   while (fe > fs && fe[-1] == '0') fe--;     /* strip trailing zeros of the fraction */
   ilen = (int)(ie - is);
   flen = (int)(fe - fs);
+  /* Reject anything MySQL's decimal(65,30) cannot hold exactly (<=35 integer,
+     <=30 fractional significant digits).  Within this bound Postgres numeric(65,30)
+     and MySQL decimal(65,30) store the value identically and exactly; beyond it
+     we return failure LOUDLY and uniformly on every backend, rather than letting
+     MySQL silently round (fractional) or overflow (integer) while Postgres keeps
+     full precision.  A canonical numeric therefore has the same meaning everywhere. */
+  if (ilen > 35 || flen > 30)
+    return NULL;
   if (ilen == 0 && flen == 0) {
     r = uw_malloc(ctx, 2);
     r[0] = '0'; r[1] = 0;

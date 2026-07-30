@@ -257,7 +257,7 @@ jobs:
           # "-12.50"/"0.00100" must normalize to "-12.5"/"0.001" and round-trip
           # exactly through the NOT NULL + nullable columns, queried by numeric
           # equality (the WHERE-parameter path).
-          echo "$out" | grep -q 'NUM_ROUNDTRIP:-12.5,opt=0.001' \
+          echo "$out" | grep -q 'NUM_ROUNDTRIP:-12.5,opt=0.001;hp=123.123456789012345678901234567891;over=rej' \
             || { echo "numeric FAILED: exact-decimal round trip / normalization broke on Postgres"; exit 1; }
           echo "pg numeric-integration: PASS"
 
@@ -482,7 +482,7 @@ jobs:
           echo "=== response ==="; echo "$out"
           # decimal(65,30) pads to 30 fractional digits; the read must normalize
           # "-12.500...0" back to "-12.5" (cross-backend parity).
-          echo "$out" | grep -q 'NUM_ROUNDTRIP:-12.5,opt=0.001' \
+          echo "$out" | grep -q 'NUM_ROUNDTRIP:-12.5,opt=0.001;hp=123.123456789012345678901234567891;over=rej' \
             || { echo "numeric FAILED: exact-decimal round trip / normalization broke on MySQL"; exit 1; }
           echo "mysql numeric-integration: PASS"
 

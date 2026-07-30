@@ -45,7 +45,10 @@ fun p_sql_type t =
       | Blob => "bytea"
       | Uuid => "uuid"
       | Timestamptz => "timestamptz"
-      | Numeric => "numeric"
+      (* numeric(65,30) matches MySQL's decimal(65,30) exactly, so the same value
+         rounds/bounds identically on both; data_type stays "numeric" for the
+         startup check (see p_sql_type_base). *)
+      | Numeric => "numeric(65,30)"
       | Channel => "int8"
       | Client => "int4"
       | Nullable t => p_sql_type t

@@ -434,23 +434,27 @@ fun p_getcol wontLeakStrings env (tAll as (t, loc)) i =
         box [string "(PQgetisnull(res, i, ",
              string (Int.toString i),
              string ") ? NULL : ",
-             case t of
-                 (TFfi ("Basis", "string"), _) => p_getcol wontLeakStrings env t i
-               | _ => box [string "({",
-                           newline,
-                           p_typ env t,
-                           space,
-                           string "*tmp = uw_malloc(ctx, sizeof(",
-                           p_typ env t,
-                           string "));",
-                           newline,
-                           string "*tmp = ",
-                           p_getcol wontLeakStrings env t i,
-                           string ";",
-                           newline,
-                           string "tmp;",
-                           newline,
-                           string "})"],
+             (* Unboxable option elements (string, uuid, numeric, ...) are
+                represented as the value itself with NULL == None; only boxed
+                types need a heap pointer. *)
+             if isUnboxable t then
+                 p_getcol wontLeakStrings env t i
+             else
+                 box [string "({",
+                      newline,
+                      p_typ env t,
+                      space,
+                      string "*tmp = uw_malloc(ctx, sizeof(",
+                      p_typ env t,
+                      string "));",
+                      newline,
+                      string "*tmp = ",
+                      p_getcol wontLeakStrings env t i,
+                      string ";",
+                      newline,
+                      string "tmp;",
+                      newline,
+                      string "})"],
              string ")"]
       | _ =>
         box [string "(PQgetisnull(res, i, ",

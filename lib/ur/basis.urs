@@ -10,10 +10,21 @@ type uuid
  * plain [time] (SQL "timestamp without time zone") suffers.  Convert to/from
  * [time] with [timestamptzToTime]/[timeToTimestamptz]. *)
 type timestamptz
-(* An exact decimal number (arbitrary precision on Postgres; up to 65 digits /
- * 30 fractional on MySQL).  Held as a canonical decimal string; construct/inspect
- * with stringToNumeric / numericToString.  Stored in a real numeric column, so
- * unlike `float` it never loses precision to binary floating point. *)
+(* An exact decimal number with up to 35 integer and 30 fractional significant
+ * digits -- the range that both Postgres numeric(65,30) and MySQL decimal(65,30)
+ * hold IDENTICALLY and exactly.  Held as a canonical decimal string; construct
+ * with stringToNumeric (which returns None for anything outside that range, so
+ * over-precision fails loudly and uniformly rather than being silently rounded
+ * on one backend and kept on another).  Stored in a real numeric column, so
+ * unlike `float` it never loses precision to binary floating point.
+ *
+ * Caveats: numeric represents FINITE decimals only -- the special Postgres
+ * numeric tokens 'NaN'/'Infinity' are not valid values and reading one (e.g.
+ * written by another process) raises a fatal error rather than silently
+ * mis-reading it.  The startup schema check verifies the base column type but
+ * NOT its declared precision/scale, so a pre-existing column with a smaller
+ * scale would round writes; create numeric columns via Ur/Web, or match
+ * (65,30). *)
 type numeric
 
 type unit = {}
