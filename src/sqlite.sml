@@ -44,6 +44,7 @@ fun p_sql_type t =
       | Timestamptz => "text"
       | Numeric => "text"
       | Date => "text"
+      | TimeOfDay => "text"
       | Channel => "integer"
       | Client => "integer"
       | Nullable t => p_sql_type t
@@ -445,6 +446,9 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
               | Date => box [string "uw_Basis_stringToDate_error(ctx, (uw_Basis_string)sqlite3_column_text(stmt, ",
                              string (Int.toString i),
                              string "))"]
+              | TimeOfDay => box [string "uw_Basis_stringToTimeOfDay_error(ctx, (uw_Basis_string)sqlite3_column_text(stmt, ",
+                                  string (Int.toString i),
+                                  string "))"]
               | Blob => box [string "({",
                              newline,
                              string "char *data = (char *)sqlite3_column_blob(stmt, ",
@@ -486,6 +490,7 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
                        | Uuid => getter t
                        | Numeric => getter t
                        | Date => getter t
+                       | TimeOfDay => getter t
                        | _ => box [string "({",
                                    newline,
                                    string (p_sql_ctype t),
@@ -614,6 +619,7 @@ fun p_inputs loc =
                                       | Uuid => bind (String, arg)
                                       | Numeric => bind (String, arg)
                                       | Date => bind (String, arg)
+                                      | TimeOfDay => bind (String, arg)
                                       | Char => box [string "sqlite3_bind_text(stmt, ",
                                                      string (Int.toString (i + 1)),
                                                      string ", ",

@@ -590,6 +590,7 @@ datatype sql_type =
        | Timestamptz
        | Numeric
        | Date
+       | TimeOfDay
        | Channel
        | Client
        | Nullable of sql_type
@@ -611,12 +612,14 @@ fun p_sql_ctype t =
           | Timestamptz => "uw_Basis_time"
           | Numeric => "uw_Basis_numeric"
           | Date => "uw_Basis_date"
+          | TimeOfDay => "uw_Basis_timeOfDay"
           | Channel => "uw_Basis_channel"
           | Client => "uw_Basis_client"
           | Nullable String => "uw_Basis_string"
           | Nullable Uuid => "uw_Basis_uuid"
           | Nullable Numeric => "uw_Basis_numeric"
           | Nullable Date => "uw_Basis_date"
+          | Nullable TimeOfDay => "uw_Basis_timeOfDay"
           | Nullable t => p_sql_ctype t ^ "*"
     end
 

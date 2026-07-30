@@ -3193,6 +3193,83 @@ char *uw_Basis_sqlifyDateN(uw_context ctx, uw_Basis_date *d) {
     return uw_Basis_sqlifyDate(ctx, *d);
 }
 
+char *uw_sqlsuffixTimeOfDay = "";
+
+/* timeOfDay: a wall-clock time held as its canonical "HH:MM:SS" string -- a
+ * validated 24-hour time of day, 00:00:00 .. 23:59:59, whole seconds (no
+ * fractional part, no 24:00:00, no leap second).  Like uuid/date it is
+ * stored/compared as a quoted literal cast to the backend's time column type
+ * (uw_sqlsuffixTimeOfDay = "::time" on Postgres). */
+static int uw_timeOfDay_valid(uw_Basis_string s) {
+  int hh, mm, ss, i;
+
+  if (!s)
+    return 0;
+  for (i = 0; i < 8; i++) {
+    if (i == 2 || i == 5) {
+      if (s[i] != ':')
+        return 0;
+    } else if (s[i] < '0' || s[i] > '9')
+      return 0;
+  }
+  if (s[8] != 0)
+    return 0;
+  hh = (s[0]-'0')*10 + (s[1]-'0');
+  mm = (s[3]-'0')*10 + (s[4]-'0');
+  ss = (s[6]-'0')*10 + (s[7]-'0');
+  /* 23:59:59 is the last valid instant: reject 24:xx:xx and any 60 (a leap
+     second) so the value is a proper time-of-day on both Postgres `time` and
+     MySQL `TIME` (whose native range is wider). */
+  return hh <= 23 && mm <= 59 && ss <= 59;
+}
+
+uw_Basis_string uw_Basis_timeOfDayToString(uw_context ctx, uw_Basis_timeOfDay t) {
+  (void)ctx;
+  return t;
+}
+
+/* Returns NULL (Ur [None]) for anything that is not a canonical HH:MM:SS time. */
+uw_Basis_timeOfDay uw_Basis_stringToTimeOfDay(uw_context ctx, uw_Basis_string s) {
+  char *r;
+  if (!uw_timeOfDay_valid(s))
+    return NULL;
+  r = uw_malloc(ctx, 9);
+  memcpy(r, s, 9);
+  return r;
+}
+
+uw_Basis_timeOfDay uw_Basis_stringToTimeOfDay_error(uw_context ctx, uw_Basis_string s) {
+  char *r;
+  if (!uw_timeOfDay_valid(s))
+    uw_error(ctx, FATAL, "Can't parse time of day: %s", uw_Basis_htmlifyString(ctx, s));
+  r = uw_malloc(ctx, 9);
+  memcpy(r, s, 9);
+  return r;
+}
+
+uw_Basis_string uw_Basis_sqlifyTimeOfDay(uw_context ctx, uw_Basis_timeOfDay t) {
+  char *r, *s2;
+
+  if (!uw_timeOfDay_valid(t))
+    uw_error(ctx, FATAL, "sqlifyTimeOfDay: not a valid time of day");
+  uw_check_heap(ctx, 8 + 2 + strlen(uw_sqlsuffixTimeOfDay) + 1);
+  r = s2 = ctx->heap.front;
+  *s2++ = '\'';
+  memcpy(s2, t, 8);
+  s2 += 8;
+  *s2++ = '\'';
+  strcpy(s2, uw_sqlsuffixTimeOfDay);
+  ctx->heap.front = s2 + strlen(uw_sqlsuffixTimeOfDay) + 1;
+  return r;
+}
+
+char *uw_Basis_sqlifyTimeOfDayN(uw_context ctx, uw_Basis_timeOfDay *t) {
+  if (t == NULL)
+    return "NULL";
+  else
+    return uw_Basis_sqlifyTimeOfDay(ctx, *t);
+}
+
 char *uw_sqlsuffixBlob = "::bytea";
 
 uw_Basis_string uw_Basis_sqlifyBlob(uw_context ctx, uw_Basis_blob b) {

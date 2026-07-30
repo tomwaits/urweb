@@ -33,6 +33,14 @@ type numeric
  * silently coerced.  Stored in the backend's native date column (Postgres/MySQL
  * `date`; SQLite text).  Like [uuid], [date] is a server-side SQL type. *)
 type date
+(* A wall-clock time of day (no date, no timezone), held as its canonical
+ * "HH:MM:SS" string: a 24-hour time in 00:00:00 .. 23:59:59, whole seconds.
+ * Construct with stringToTimeOfDay, which returns None for anything outside that
+ * range or shape (incl. 24:00:00, a 60 leap-second, or a fractional part) so
+ * malformed times fail loudly rather than being silently coerced.  Stored in the
+ * backend's native time column (Postgres/MySQL `time`; SQLite text).  Like
+ * [uuid], [timeOfDay] is a server-side SQL type. *)
+type timeOfDay
 
 type unit = {}
 
@@ -317,6 +325,7 @@ val sql_uuid : sql_injectable_prim uuid
 val sql_timestamptz : sql_injectable_prim timestamptz
 val sql_numeric : sql_injectable_prim numeric
 val sql_date : sql_injectable_prim date
+val sql_timeOfDay : sql_injectable_prim timeOfDay
 val sql_channel : t ::: Type -> sql_injectable_prim (channel t)
 val sql_client : sql_injectable_prim client
 
@@ -1132,6 +1141,13 @@ val stringToDate : string -> option date
  * [Some] for a proper Gregorian date in that exact form and [None] otherwise.
  * Like [uuid], [date] is a server-side SQL type and does not currently cross the
  * client/URL boundary. *)
+
+val timeOfDayToString : timeOfDay -> string
+val stringToTimeOfDay : string -> option timeOfDay
+(* [timeOfDayToString] yields the canonical "HH:MM:SS" text.  [stringToTimeOfDay]
+ * returns [Some] for a 24-hour time of day (00:00:00 .. 23:59:59) in that exact
+ * form and [None] otherwise.  Like [uuid], [timeOfDay] is a server-side SQL type
+ * and does not currently cross the client/URL boundary. *)
 
 val timestamptzToTime : timestamptz -> time
 val timeToTimestamptz : time -> timestamptz

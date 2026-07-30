@@ -146,6 +146,33 @@ jobs:
             || { echo "date FAILED: date round trip broke on SQLite: $out"; exit 1; }
           echo "sqlite date-integration: PASS"
 
+      - name: Compile + run tests/todtest on SQLite (native time-of-day via text column)
+        run: |
+          set -euo pipefail
+          # SQLite has no dedicated time type: a `time` column is stored as text.
+          # Exercises the sqlite timeOfDay path (bind/read as a canonical HH:MM:SS
+          # string) plus the backend-independent uw_timeOfDay_valid battery, giving
+          # `timeOfDay` full three-backend runtime coverage.
+          result/bin/urweb -dbms sqlite -db /tmp/tod.db -sql /tmp/tod.sql tests/todtest
+          rm -f /tmp/tod.db
+          python3 -c "import sqlite3; c=sqlite3.connect('/tmp/tod.db'); c.executescript(open('/tmp/tod.sql').read()); c.close()"
+          tests/todtest.exe -q -a 127.0.0.1 -p 8108 & echo $! > /tmp/tod.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8108/Todtest/main' || true)
+          kill "$(cat /tmp/tod.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # The 24h-range / minute-second-60 / fractional / shape validation battery
+          # must emit NO BAD_ marker...
+          if echo "$out" | grep -q 'BAD_'; then
+            echo "timeOfDay FAILED: uw_timeOfDay_valid mis-classified a time (see BAD_ marker above)"; exit 1
+          fi
+          # ...and the three rows must round-trip exactly: a NULL Ref reads back as
+          # `none` (the Nullable TimeOfDay None branch), and the 00:00:00 and
+          # 23:59:59 boundaries survive intact.
+          echo "$out" | grep -q 'TOD_ROUNDTRIP:00:00:00=mid,ref=none;12:30:45=noon,ref=12:30:45;23:59:59=max,ref=23:59:59;' \
+            || { echo "timeOfDay FAILED: time round trip broke on SQLite: $out"; exit 1; }
+          echo "sqlite timeOfDay-integration: PASS"
+
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
   # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
   # the startup schema-structure check (#230), timestamp handling (#163), the
@@ -381,6 +408,37 @@ jobs:
           echo "$out" | grep -q 'DATE_ROUNDTRIP:0500-06-15=low,ref=none;2024-01-15=hello,ref=2024-01-15;9999-12-31=max,ref=9999-12-31;' \
             || { echo "date FAILED: native date round trip broke on Postgres"; exit 1; }
           echo "pg date-integration: PASS"
+
+      - name: Compile + run tests/todtest against live Postgres (native time column)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          result/bin/urweb -dbms postgres -db "$DB" -sql tests/todtest.sql tests/todtest
+          echo "=== emitted schema ==="; cat tests/todtest.sql
+          # Id and the nullable Ref must both be a NATIVE Postgres `time` column.
+          grep -Eiq 'uw_id[[:space:]]+time([[:space:]]|,)' tests/todtest.sql \
+            || { echo "timeOfDay FAILED: Id column is not a native Postgres time"; exit 1; }
+          grep -Eiq 'uw_ref[[:space:]]+time([[:space:]]|,)' tests/todtest.sql \
+            || { echo "timeOfDay FAILED: nullable Ref column is not a native Postgres time"; exit 1; }
+          psql "$DB" -v ON_ERROR_STOP=1 -f tests/todtest.sql
+          tests/todtest.exe -q -a 127.0.0.1 -p 8109 & echo $! > /tmp/tod.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8109/Todtest/main' || true)
+          kill "$(cat /tmp/tod.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # The 24h-range / minute-second-60 / fractional / shape battery must emit
+          # NO BAD_ marker.
+          if echo "$out" | grep -q 'BAD_'; then
+            echo "timeOfDay FAILED: uw_timeOfDay_valid mis-classified a time (see BAD_ marker above)"; exit 1
+          fi
+          # And the three rows must round-trip exactly, queried by time equality
+          # (exercising the ::time write cast): a NULL Ref reads back as `none` (the
+          # Nullable TimeOfDay None branch), and 00:00:00 / 23:59:59 are boundaries.
+          echo "$out" | grep -q 'TOD_ROUNDTRIP:00:00:00=mid,ref=none;12:30:45=noon,ref=12:30:45;23:59:59=max,ref=23:59:59;' \
+            || { echo "timeOfDay FAILED: native time round trip broke on Postgres"; exit 1; }
+          echo "pg timeOfDay-integration: PASS"
 
       - name: Startup warns on database/server time-zone skew (#163)
         env:
@@ -674,6 +732,39 @@ jobs:
           echo "$out" | grep -q 'DATE_ROUNDTRIP:0500-06-15=low,ref=none;2024-01-15=hello,ref=2024-01-15;9999-12-31=max,ref=9999-12-31;' \
             || { echo "date FAILED: native date round trip broke on MySQL"; exit 1; }
           echo "mysql date-integration: PASS (date round trip incl. nullable Ref, on live MySQL)"
+
+      - name: Compile + run tests/todtest against live MySQL (native time column)
+        run: |
+          set -euo pipefail
+          DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
+          urweb -dbms mysql -db "$DB" -sql tests/todtest.sql tests/todtest
+          echo "=== emitted schema ==="; cat tests/todtest.sql
+          # Id and the nullable Ref must both be a native MySQL `time` column. MySQL
+          # reports a TIME column's data_type as the bare "time" (no suffix), which
+          # is what the #230 startup schema-structure check compares against
+          # p_sql_type_base -- if that drifts, the binary fails startup below.
+          grep -Eiq 'uw_id[[:space:]]+time([[:space:]]|,)' tests/todtest.sql \
+            || { echo "timeOfDay FAILED: Id column is not a native MySQL time"; exit 1; }
+          grep -Eiq 'uw_ref[[:space:]]+time([[:space:]]|,)' tests/todtest.sql \
+            || { echo "timeOfDay FAILED: nullable Ref column is not a native MySQL time"; exit 1; }
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/todtest.sql
+          tests/todtest.exe -q -a 127.0.0.1 -p 8110 >/tmp/todmy.log 2>&1 & echo $! > /tmp/tod.pid
+          sleep 3
+          out=$(curl -s 'http://localhost:8110/Todtest/main' || true)
+          kill "$(cat /tmp/tod.pid)" 2>/dev/null || true
+          echo "=== server log ==="; cat /tmp/todmy.log 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # The validation battery must emit NO BAD_ marker.
+          if echo "$out" | grep -q 'BAD_'; then
+            echo "timeOfDay FAILED: uw_timeOfDay_valid mis-classified a time (see BAD_ marker above)"; exit 1
+          fi
+          # And the three rows must round-trip exactly, queried by time equality: a
+          # NULL Ref reads back as `none` (the Nullable TimeOfDay None branch), and
+          # 00:00:00 / 23:59:59 are boundaries (MySQL TIME is a wider duration type,
+          # so this also confirms our validated 24h range stays a proper time-of-day).
+          echo "$out" | grep -q 'TOD_ROUNDTRIP:00:00:00=mid,ref=none;12:30:45=noon,ref=12:30:45;23:59:59=max,ref=23:59:59;' \
+            || { echo "timeOfDay FAILED: native time round trip broke on MySQL"; exit 1; }
+          echo "mysql timeOfDay-integration: PASS (time round trip incl. nullable Ref, on live MySQL)"
 
       - name: Negative — the startup schema check REJECTS schema drift (#230)
         run: |

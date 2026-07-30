@@ -71,6 +71,7 @@ fun isUnboxable (t : typ) =
       | TFfi ("Basis", "uuid") => true
       | TFfi ("Basis", "numeric") => true
       | TFfi ("Basis", "date") => true
+      | TFfi ("Basis", "timeOfDay") => true
       | TFfi ("Basis", "queryString") => true
       | _ => false
 
@@ -418,6 +419,7 @@ fun p_unsql wontLeakStrings env (tAll as (t, loc)) e eLen =
       | TFfi ("Basis", "timestamptz") => box [string "uw_Basis_stringToTimestamptz_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "numeric") => box [string "uw_Basis_stringToNumeric_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "date") => box [string "uw_Basis_stringToDate_error(ctx, ", e, string ")"]
+      | TFfi ("Basis", "timeOfDay") => box [string "uw_Basis_stringToTimeOfDay_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "blob") => box [string "uw_Basis_stringToBlob_error(ctx, ",
                                        e,
                                        string ", ",
@@ -514,6 +516,7 @@ fun getPargs (e, _) =
       | EFfiApp ("Basis", "sqlifyTimestamptz", [(e, _)]) => [(e, Timestamptz)]
       | EFfiApp ("Basis", "sqlifyNumeric", [(e, _)]) => [(e, Numeric)]
       | EFfiApp ("Basis", "sqlifyDate", [(e, _)]) => [(e, Date)]
+      | EFfiApp ("Basis", "sqlifyTimeOfDay", [(e, _)]) => [(e, TimeOfDay)]
       | EFfiApp ("Basis", "sqlifyChannel", [(e, _)]) => [(e, Channel)]
       | EFfiApp ("Basis", "sqlifyClient", [(e, _)]) => [(e, Client)]
 
@@ -1420,6 +1423,7 @@ fun sql_type_in env (tAll as (t, loc)) =
       | TFfi ("Basis", "timestamptz") => Timestamptz
       | TFfi ("Basis", "numeric") => Numeric
       | TFfi ("Basis", "date") => Date
+      | TFfi ("Basis", "timeOfDay") => TimeOfDay
       | TFfi ("Basis", "channel") => Channel
       | TFfi ("Basis", "client") => Client
       | TOption t' => Nullable (sql_type_in env t')

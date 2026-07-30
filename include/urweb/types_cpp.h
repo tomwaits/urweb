@@ -48,6 +48,14 @@ typedef uw_Basis_string uw_Basis_numeric;
  * column (Postgres/MySQL `date`; SQLite text). */
 typedef uw_Basis_string uw_Basis_date;
 
+/* A wall-clock time of day, held as its canonical "HH:MM:SS" string (a validated
+ * 24-hour time: 00:00:00 .. 23:59:59, whole seconds -- see uw_timeOfDay_valid).
+ * Stored in the backend's native time column (Postgres/MySQL `time`; SQLite
+ * text).  NB: Postgres `time` is a time-of-day and MySQL `TIME` is a wider
+ * duration type, but the validated 00:00:00..23:59:59 range is a proper
+ * time-of-day on both, so the value round-trips identically. */
+typedef uw_Basis_string uw_Basis_timeOfDay;
+
 typedef unsigned uw_Basis_client;
 typedef struct {
   unsigned cli, chn;
