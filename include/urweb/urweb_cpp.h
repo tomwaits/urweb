@@ -220,6 +220,14 @@ uw_Basis_time uw_Basis_stringToTime_error(struct uw_context *, const char *);
 uw_Basis_blob uw_Basis_stringToBlob_error(struct uw_context *, uw_Basis_string, size_t);
 uw_Basis_uuid uw_Basis_stringToUuid(struct uw_context *, uw_Basis_string);
 uw_Basis_string uw_Basis_uuidToString(struct uw_context *, uw_Basis_uuid);
+uw_Basis_string uw_Basis_sqlifyTimestamptz(struct uw_context *, uw_Basis_timestamptz);
+uw_Basis_string uw_Basis_sqlifyTimestamptzN(struct uw_context *, uw_Basis_timestamptz*);
+char *uw_Basis_ensqlTimestamptz(struct uw_context *, uw_Basis_timestamptz);
+char *uw_Basis_attrifyTimestamptz(struct uw_context *, uw_Basis_timestamptz);
+uw_Basis_timestamptz *uw_Basis_stringToTimestamptz(struct uw_context *, const char *);
+uw_Basis_timestamptz uw_Basis_stringToTimestamptz_error(struct uw_context *, const char *);
+uw_Basis_time uw_Basis_timestamptzToTime(struct uw_context *, uw_Basis_timestamptz);
+uw_Basis_timestamptz uw_Basis_timeToTimestamptz(struct uw_context *, uw_Basis_time);
 uw_Basis_channel uw_Basis_stringToChannel_error(struct uw_context *, uw_Basis_string);
 uw_Basis_client uw_Basis_stringToClient_error(struct uw_context *, uw_Basis_string);
 

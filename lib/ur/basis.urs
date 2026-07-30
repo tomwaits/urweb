@@ -5,6 +5,11 @@ type char
 type time
 type blob
 type uuid
+(* A timezone-aware timestamp: the same instant as [time], but stored/retrieved
+ * in UTC, so it is immune to the server-vs-database session-zone skew that a
+ * plain [time] (SQL "timestamp without time zone") suffers.  Convert to/from
+ * [time] with [timestamptzToTime]/[timeToTimestamptz]. *)
+type timestamptz
 
 type unit = {}
 
@@ -286,6 +291,7 @@ val sql_char : sql_injectable_prim char
 val sql_time : sql_injectable_prim time
 val sql_blob : sql_injectable_prim blob
 val sql_uuid : sql_injectable_prim uuid
+val sql_timestamptz : sql_injectable_prim timestamptz
 val sql_channel : t ::: Type -> sql_injectable_prim (channel t)
 val sql_client : sql_injectable_prim client
 
@@ -1070,6 +1076,15 @@ val stringToUuid : string -> option uuid
  * client/URL boundary (no urlify/unurlify), so it may not appear directly in
  * page-handler inputs, links, or forms. Round-trip through [string] with
  * [uuidToString] / [stringToUuid] at those boundaries. *)
+
+val timestamptzToTime : timestamptz -> time
+val timeToTimestamptz : time -> timestamptz
+(* [timestamptz] is the same absolute instant as [time]; the conversions are
+ * identities on the instant.  The distinction is purely in SQL storage:
+ * [timestamptz] is stored/retrieved in UTC (immune to session-zone skew),
+ * whereas [time] uses a "timestamp without time zone" column serialized in
+ * server-local time.  Like [uuid], [timestamptz] is a server-side SQL type and
+ * does not currently cross the client/URL boundary. *)
 
 type postBody
 val postType : postBody -> string

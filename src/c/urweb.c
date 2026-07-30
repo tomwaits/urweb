@@ -3187,6 +3187,115 @@ char *uw_Basis_sqlifyTimeN(uw_context ctx, uw_Basis_time *t) {
     return uw_Basis_sqlifyTime(ctx, *t);
 }
 
+/* timestamptz: the same absolute instant as time, but ALWAYS serialized in UTC
+ * (gmtime_r on write, timegm on read).  Because both ends use UTC, and the DB
+ * session is forced to UTC (see each backend's uw_client_init), the value never
+ * passes through a server-local or database-session-zone conversion -- so the
+ * server-vs-database skew that plagues the localtime-based `time` (issue #163)
+ * cannot occur. */
+char *uw_Basis_sqlifyTimestamptz(uw_context ctx, uw_Basis_time t) {
+  size_t len;
+  char *r, *s;
+  struct tm stm = {};
+
+  if (gmtime_r(&t.seconds, &stm)) {
+    s = uw_malloc(ctx, TIMES_MAX);
+    len = strftime(s, TIMES_MAX, TIME_FMT_PG, &stm);
+    if (uw_sql_type_annotations) {
+      if (t.microseconds) {
+        r = uw_malloc(ctx, len + 32);
+        sprintf(r, "'%s.%06u+00'::timestamptz", s, t.microseconds);
+      } else {
+        r = uw_malloc(ctx, len + 25);
+        sprintf(r, "'%s+00'::timestamptz", s);
+      }
+    } else {
+      if (t.microseconds) {
+        r = uw_malloc(ctx, len + 14);
+        sprintf(r, "'%s.%06u+00'", s, t.microseconds);
+      } else {
+        r = uw_malloc(ctx, len + 7);
+        sprintf(r, "'%s+00'", s);
+      }
+    }
+    return r;
+  } else
+    return "<Invalid time>";
+}
+
+char *uw_Basis_sqlifyTimestamptzN(uw_context ctx, uw_Basis_time *t) {
+  if (t == NULL)
+    return "NULL";
+  else
+    return uw_Basis_sqlifyTimestamptz(ctx, *t);
+}
+
+char *uw_Basis_ensqlTimestamptz(uw_context ctx, uw_Basis_time t) {
+  size_t len;
+  char *r;
+  struct tm stm = {};
+
+  if (gmtime_r(&t.seconds, &stm)) {
+    uw_check_heap(ctx, TIMES_MAX);
+    r = ctx->heap.front;
+    len = strftime(r, TIMES_MAX-7, TIME_FMT_PG, &stm);
+    ctx->heap.front += len;
+    sprintf(ctx->heap.front, ".%06u", t.microseconds);
+    ctx->heap.front += 8;
+    return r;
+  } else
+    return "<Invalid time>";
+}
+
+char *uw_Basis_attrifyTimestamptz(uw_context ctx, uw_Basis_time t) {
+  size_t len;
+  char *r;
+  struct tm stm = {};
+
+  if (gmtime_r(&t.seconds, &stm)) {
+    uw_check_heap(ctx, TIMES_MAX);
+    r = ctx->heap.front;
+    len = strftime(r, TIMES_MAX, TIME_FMT_PG, &stm);
+    ctx->heap.front += len+1;
+    return r;
+  } else
+    return "<Invalid time>";
+}
+
+uw_Basis_time *uw_Basis_stringToTimestamptz(uw_context ctx, uw_Basis_string s) {
+  /* Parse with timegm (UTC), NOT mktime (server-local).  strptime consumes the
+     "YYYY-MM-DD HH:MM:SS" prefix; a trailing timezone offset (Postgres emits
+     "+00" under a UTC session) and fractional seconds are tolerated. */
+  struct tm stm = {};
+  char *rest = strptime(s, TIME_FMT_PG, &stm);
+
+  if (rest) {
+    uw_Basis_time *r = uw_malloc(ctx, sizeof(uw_Basis_time));
+    r->seconds = timegm(&stm);
+    r->microseconds = 0;
+    if (*rest == '.') {
+      const char *p = rest + 1;
+      unsigned us = 0;
+      int ndig = 0;
+      while (ndig < 6 && *p >= '0' && *p <= '9') { us = us*10 + (unsigned)(*p - '0'); p++; ndig++; }
+      while (ndig < 6) { us *= 10; ndig++; }
+      r->microseconds = us;
+    }
+    return r;
+  } else
+    return NULL;
+}
+
+uw_Basis_time uw_Basis_timestamptzToTime(uw_context ctx, uw_Basis_timestamptz t) {
+  (void)ctx;
+  return t;
+}
+
+uw_Basis_timestamptz uw_Basis_timeToTimestamptz(uw_context ctx, uw_Basis_time t) {
+  (void)ctx;
+  return t;
+}
+
 char *uw_Basis_ensqlBool(uw_Basis_bool b) {
   static uw_Basis_int tru = 1;
   static uw_Basis_int fals = 0;
@@ -3509,6 +3618,26 @@ uw_Basis_time uw_Basis_stringToTime_error(uw_context ctx, uw_Basis_string s) {
     } else
       uw_error(ctx, FATAL, "Can't parse time: %s", uw_Basis_htmlifyString(ctx, s));
   }
+}
+
+uw_Basis_time uw_Basis_stringToTimestamptz_error(uw_context ctx, uw_Basis_string s) {
+  /* UTC parse (timegm), tolerating a trailing tz offset and fractional seconds. */
+  struct tm stm = {};
+  char *rest = strptime(s, TIME_FMT_PG, &stm);
+
+  if (rest) {
+    uw_Basis_time r = { timegm(&stm), 0 };
+    if (*rest == '.') {
+      const char *p = rest + 1;
+      unsigned us = 0;
+      int ndig = 0;
+      while (ndig < 6 && *p >= '0' && *p <= '9') { us = us*10 + (unsigned)(*p - '0'); p++; ndig++; }
+      while (ndig < 6) { us *= 10; ndig++; }
+      r.microseconds = us;
+    }
+    return r;
+  } else
+    uw_error(ctx, FATAL, "Can't parse timestamptz: %s", uw_Basis_htmlifyString(ctx, s));
 }
 
 uw_Basis_time uw_Basis_stringToTimef_error(uw_context ctx, const char *fmt, uw_Basis_string s) {

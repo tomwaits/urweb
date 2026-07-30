@@ -41,6 +41,7 @@ fun p_sql_type t =
       | Time => "text"
       | Blob => "blob"
       | Uuid => "text"
+      | Timestamptz => "text"
       | Channel => "integer"
       | Client => "integer"
       | Nullable t => p_sql_type t
@@ -433,6 +434,9 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
                              string ", (uw_Basis_string)sqlite3_column_text(stmt, ",
                              string (Int.toString i),
                              string "))"]
+              | Timestamptz => box [string "uw_Basis_stringToTimestamptz_error(ctx, (uw_Basis_string)sqlite3_column_text(stmt, ",
+                                    string (Int.toString i),
+                                    string "))"]
               | Blob => box [string "({",
                              newline,
                              string "char *data = (char *)sqlite3_column_blob(stmt, ",
@@ -615,6 +619,11 @@ fun p_inputs loc =
                                                      string ", ",
                                                      arg,
                                                      string "), -1, SQLITE_TRANSIENT)"]
+                                      | Timestamptz => box [string "sqlite3_bind_text(stmt, ",
+                                                            string (Int.toString (i + 1)),
+                                                            string ", uw_Basis_ensqlTimestamptz(ctx, ",
+                                                            arg,
+                                                            string "), -1, SQLITE_TRANSIENT)"]
                                       | Blob => box [string "sqlite3_bind_blob(stmt, ",
                                                      string (Int.toString (i + 1)),
                                                      string ", ",
