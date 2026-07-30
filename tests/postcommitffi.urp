@@ -1,0 +1,6 @@
+ffi postcommitffi
+include postcommitffi.h
+link postcommitffi.o
+effectful Postcommitffi.armOk
+effectful Postcommitffi.armFail
+effectful Postcommitffi.okRan

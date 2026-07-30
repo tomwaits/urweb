@@ -1,0 +1,6 @@
+library postcommitffi
+safeGet Postcommit/ok
+safeGet Postcommit/fail
+safeGet Postcommit/check
+
+postcommit
