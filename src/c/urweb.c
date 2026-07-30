@@ -3113,6 +3113,11 @@ char *uw_Basis_sqlifyNumericN(uw_context ctx, uw_Basis_numeric *n) {
 
 char *uw_sqlsuffixDate = "";
 
+/* NB: for scalar column injection these sqlify* literal-writers are reached
+ * ONLY by queries the prepare pass leaves unprepared (runtime-assembled SQL);
+ * ordinary {[value]} injection is turned into a prepared parameter instead --
+ * see the note in src/prepare.sml. Kept correct-by-construction regardless. */
+
 /* date: a calendar date held as its canonical "YYYY-MM-DD" string -- a validated
  * proper Gregorian date (month 1-12, day valid for the month, leap years
  * honored).  Like uuid it is stored/compared as a quoted literal cast to the
