@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe $(TESTDLOG) $(TESTDOUT) tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
+	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe tests/jsesc.exe $(TESTDLOG) $(TESTDOUT) tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -185,12 +185,16 @@ tests/svgtag.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
 	bin/urweb -boot -noEmacs -ccopt -O1 tests/svgtag
 
+tests/jsesc.exe: bin/urweb | demo/demo.exe
+	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
+	bin/urweb -boot -noEmacs -ccopt -O1 tests/jsesc
+
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
 
 QUERY_FIXTURES = qguard agg
 
-test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe
+test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe tests/jsesc.exe
 	@echo ""
 	@echo "=== make test: fixtures built; running checks (each announced below; the slow part was the full demo compile above) ==="
 	@echo "==> [tc 1/4] sigfk        (signature-level FK disjointness, #267)"
@@ -203,7 +207,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	bin/urweb -tc -boot -noEmacs tests/arrowguard || (echo "Test 'arrowguard' failed: a guarded type written with -> instead of => did not typecheck (urweb/urweb#197)"; false)
 	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
 	@# Set-Cookie response header.
-	@echo "==> [http 1/6] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
+	@echo "==> [http 1/7] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
 	tests/cookiehttponly.exe -q -a 127.0.0.1 -p 8083 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8083/Cookiehttponly/main' | grep -i '^set-cookie:' | grep -qi 'httponly') || (kill `cat $(TESTPID)`; echo "Test 'cookiehttponly' failed: Set-Cookie header missing 'httponly' (PR#279)"; false)
@@ -215,7 +219,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# RUNTIME-built JSON string on purpose (a compile-time literal would hit a
 	@# separate constant-folding bug for astral chars); its strlen/strlenUtf8
 	@# self-check emits SURROGATE_PAIR_OK, and we also byte-check for F0 9F 98 80.
-	@echo "==> [http 2/6] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :8084"
+	@echo "==> [http 2/7] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :8084"
 	tests/jsonsurrogate.exe -q -a 127.0.0.1 -p 8084 & echo $$! > $(TESTPID)
 	sleep 2
 	(curl -s 'http://localhost:8084/Jsonsurrogate/main' | grep -q 'SURROGATE_PAIR_OK') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: surrogate pair did not decode to one U+1F600 scalar value (strlen/strlenUtf8 self-check) -- urweb/urweb#211"; false)
@@ -226,7 +230,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# = 1), so curl -si shows it verbatim. Two handlers set two different codes
 	@# (404, 429) so the check proves the emitted status tracks the argument, not
 	@# a hardcoded value. -i so the status line is in curl's output.
-	@echo "==> [http 3/6] respstatus (setResponseStatus 404/429, #222) — serving on :8085"
+	@echo "==> [http 3/7] respstatus (setResponseStatus 404/429, #222) — serving on :8085"
 	tests/respstatus.exe -q -a 127.0.0.1 -p 8085 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8085/Respstatus/notFound' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 404 did not set the status line to 404 (urweb/urweb#222)"; false)
@@ -239,7 +243,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# also preserves '#' (colors/anchors) that the .urp comment stripper would
 	@# truncate -- asserted via the '#top' anchor. /Notfound/main exists;
 	@# /Notfound/nope does not.
-	@echo "==> [http 4/6] notfound (custom 404 notFoundPage, #39) — serving on :8086"
+	@echo "==> [http 4/7] notfound (custom 404 notFoundPage, #39) — serving on :8086"
 	tests/notfound.exe -q -a 127.0.0.1 -p 8086 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8086/Notfound/nope' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: an unmatched URL did not return a 404 status line (urweb/urweb#39)"; false)
@@ -256,7 +260,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# child (it must still serve), confirm the log file was written and that the
 	@# app's background `task periodic` still fires in the child, and stop it via
 	@# the reported pid.
-	@echo "==> [http 5/6] daemon (-d detaches, logs, serves + keeps its 'task periodic', in background) — serving on :8087"
+	@echo "==> [http 5/7] daemon (-d detaches, logs, serves + keeps its 'task periodic', in background) — serving on :8087"
 	@rm -f $(TESTDLOG) $(TESTDOUT)
 	tests/daemon.exe -a 127.0.0.1 -p 8087 -d $(TESTDLOG) > $(TESTDOUT) || (echo "Test 'daemon' failed: the server exited nonzero under -d instead of daemonizing"; false)
 	@sed -n 's/.*Daemonized: pid \([0-9][0-9]*\).*/\1/p' $(TESTDOUT) > $(TESTPID)
@@ -275,7 +279,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# '_' rendered as '-' (Fill_rule -> fill-rule). Greps the served HTML for the
 	@# exact names, so a regression in attribute-name rendering fails, not just a
 	@# missing declaration.
-	@echo "==> [http 6/6] svgtag (inline svg/path render with viewBox + fill-rule, #259) — serving on :8088"
+	@echo "==> [http 6/7] svgtag (inline svg/path render with viewBox + fill-rule, #259) — serving on :8088"
 	tests/svgtag.exe -q -a 127.0.0.1 -p 8088 & echo $$! > $(TESTPID)
 	sleep 1
 	@# Liveness gate: if the fresh server died (e.g. bind failure against a stale
@@ -288,6 +292,21 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'xmlns="http://www.w3.org/2000/svg"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: xmlns attribute missing from the svg tag (urweb/urweb#259)"; false)
 	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'd="M9 12l2 2 4-4"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: single-letter D field did not render as the d attribute (urweb/urweb#259)"; false)
 	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'width="24"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: string-typed Width did not render on svg (urweb/urweb#259)"; false)
+	kill `cat $(TESTPID)`
+	@# urweb/urweb#121 (verify-then-close): control characters in client-side
+	@# string literals must never reach the emitted JavaScript raw. A REAL 0x08
+	@# (via \x08 -- the lexer has no \b escape) plus \n and \t are compiled into
+	@# app.js; jscomp's jsChar octal-escapes non-printables (0x08 -> \010) and the
+	@# closure-serialization layer doubles backslashes, so the pinned wire form is
+	@# A\\010B\\nC\\ttail. Assert (a) the exact encoding is present (anti-vacuity)
+	@# and (b) NO raw 0x08 byte exists anywhere in the fetched app.js.
+	@echo "==> [http 7/7] jsesc (control chars octal-escaped into app.js, #121) — serving on :8089"
+	tests/jsesc.exe -q -a 127.0.0.1 -p 8089 & echo $$! > $(TESTPID)
+	sleep 1
+	kill -0 `cat $(TESTPID)` || (echo "Test 'jsesc' failed: the freshly started server is not running (stale process on :8089?)"; false)
+	(curl -s "http://localhost:8089$$(curl -s 'http://localhost:8089/Jsesc/main' | grep -oE 'src="[^"]*"' | sed 's/src="//;s/"$$//')" -o /tmp/urweb.jsesc.js) || (kill `cat $(TESTPID)`; echo "Test 'jsesc' failed: could not fetch the served app.js (urweb/urweb#121)"; false)
+	(grep -qF 'A\\010B\\nC\\ttail' /tmp/urweb.jsesc.js) || (kill `cat $(TESTPID)`; echo "Test 'jsesc' failed: the pinned octal wire encoding of the control-char literal is missing from app.js (urweb/urweb#121)"; false)
+	(! grep -qP '\x08' /tmp/urweb.jsesc.js) || (kill `cat $(TESTPID)`; echo "Test 'jsesc' failed: a RAW 0x08 byte reached the emitted JavaScript (urweb/urweb#121)"; false)
 	kill `cat $(TESTPID)`
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
