@@ -27,6 +27,40 @@
 
 val socket = ".urweb_daemon"
 
+(* Whole-output cache for the compile daemon (urweb/urweb#133; supersedes the
+ * per-module idea of #47, which Corify's flattening blocks). Key = the full
+ * argument list (so different flags never share an entry). Fingerprint = a
+ * (path, mtime, size) stamp of every input -- the project .urp, every library
+ * .urp (toParseJob' lists them; library sources are already merged into
+ * #sources), every source .ur/.urs -- plus the stamp of the produced
+ * executable, so an exe rebuilt/removed behind our back misses. Stamps are
+ * the make model: sound for the edit-compile loop the daemon serves. The
+ * cache lives only in the daemon process (daemonMode is set only there) and
+ * only successful plain compiles are recorded. *)
+val daemonMode = ref false
+val daemonCache : (string * string) list ref = ref []
+
+fun fileStamp path =
+    (if OS.FileSys.access (path, []) then
+         path ^ "|" ^ Time.toString (OS.FileSys.modTime path)
+         ^ "|" ^ Position.toString (OS.FileSys.fileSize path) ^ ";"
+     else
+         path ^ "|absent;")
+    handle OS.SysErr _ => path ^ "|unreadable;"
+
+(* NONE when the project can't even be parsed -- caching then stays out of the
+ * way and the real compile reports the errors. *)
+fun projectFingerprint proj =
+    case Compiler.run Compiler.toParseJob' proj of
+        NONE => NONE
+      | SOME {Job = job, Libs = libs} =>
+        SOME (String.concat (fileStamp (proj ^ ".urp")
+                             :: map fileStamp libs
+                             @ List.concat (map (fn s => [fileStamp (s ^ ".ur"),
+                                                          fileStamp (s ^ ".urs")])
+                                                (#sources job))
+                             @ [fileStamp (#exe job)]))
+
 exception Code of OS.Process.status
 
 datatype flag_arity =
@@ -310,10 +344,34 @@ fun oneRun args =
                 (Compiler.time Compiler.toCjrize job;
                  OS.Process.success)
             else
-                (if Compiler.compile job then
-                     OS.Process.success
-                 else
-                     OS.Process.failure)
+                let
+                    (* Daemon whole-output cache (#133): compare this request's
+                     * key+fingerprint against the last successful compile. *)
+                    val key = String.concatWith "\031" (job :: args)
+
+                    fun doCompile () =
+                        if Compiler.compile job then
+                            (if !daemonMode then
+                                 case projectFingerprint job of
+                                     SOME fp' =>
+                                     daemonCache := (key, fp')
+                                                    :: List.filter (fn (k, _) => k <> key) (!daemonCache)
+                                   | NONE => ()
+                             else
+                                 ();
+                             OS.Process.success)
+                        else
+                            OS.Process.failure
+                in
+                    case (if !daemonMode then projectFingerprint job else NONE) of
+                        SOME fp =>
+                        if List.exists (fn (k, f) => k = key andalso f = fp) (!daemonCache) then
+                            (print "urweb: up to date (daemon cache hit; skipping compile)\n";
+                             OS.Process.success)
+                        else
+                            doCompile ()
+                      | NONE => doCompile ()
+                end
     end handle Code n => n
 
 fun send (sock, s) =
@@ -336,6 +394,7 @@ fun startDaemon () =
            | NONE =>
              let
                  val () = Elaborate.incremental := true
+                 val () = daemonMode := true
                  val listen = UnixSock.Strm.socket ()
 
                  fun loop () =
