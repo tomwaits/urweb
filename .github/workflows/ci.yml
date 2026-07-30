@@ -317,12 +317,17 @@ jobs:
       - name: Bootstrap a mysql_native_password app user
         run: |
           set -euo pipefail
-          # mysql:8.0's root uses caching_sha2_password. The urweb runtime links
-          # libmysqlclient WITHOUT MYSQL_OPT_GET_SERVER_PUBLIC_KEY, so it cannot
-          # complete the caching_sha2 RSA exchange over a plaintext connection.
-          # Give the app a mysql_native_password user instead. The CLI's own root
-          # connection clears caching_sha2 via TLS (default) with
-          # --get-server-public-key as a plaintext-fallback safety net.
+          # The urweb runtime sets no mysql_options, so it connects ssl-mode
+          # PREFERRED. Against mysql:8.0 (TLS on by default) a caching_sha2 user
+          # would work too -- the password travels inside TLS, no RSA public key
+          # needed. We nonetheless give the app a mysql_native_password user so
+          # its authentication does NOT depend on that TLS handshake: if PREFERRED
+          # falls back to plaintext, native_password still authenticates, whereas
+          # caching_sha2 would then require the RSA public key the runtime never
+          # requests. That deliberately decouples the app's auth from the single
+          # least-tested link in CI -- nix's OpenSSL vs the system OpenSSL that
+          # system libmysqlclient pulls in. The CLI's own root connection uses TLS
+          # (with --get-server-public-key as a plaintext-fallback) to run the GRANT.
           mysql --get-server-public-key -h 127.0.0.1 -P 3306 -uroot -proot -e "
             CREATE USER IF NOT EXISTS 'urweb'@'%' IDENTIFIED WITH mysql_native_password BY 'urweb';
             GRANT ALL PRIVILEGES ON urwebtest.* TO 'urweb'@'%';
@@ -337,9 +342,34 @@ jobs:
           MYSQL_INC="$(mysql_config --include)"                       # -I/usr/include/mysql
           MYSQL_INCDIR="${MYSQL_INC#-I}"                              # /usr/include/mysql
           MYSQL_INCPARENT="$(dirname "$MYSQL_INCDIR")"                # /usr/include
-          MYSQL_LIBDIR="$(dirname "$(find /usr/lib -name 'libmysqlclient.so' | head -1)")"
-          test -n "$MYSQL_LIBDIR" -a -d "$MYSQL_LIBDIR" \
-            || { echo "SETUP FAILED: could not locate libmysqlclient.so directory"; exit 1; }
+          # Capture the .so path first and guard on IT: `dirname ""` yields "."
+          # (a valid dir), so guarding the dirname would silently accept a
+          # not-found result and pass a bogus `-L.`. -print -quit stops at the
+          # first match (no `| head`, so no SIGPIPE under pipefail).
+          MYSQL_SO="$(find /usr/lib -name 'libmysqlclient.so' -print -quit)"
+          test -n "$MYSQL_SO" \
+            || { echo "SETUP FAILED: libmysqlclient.so not found under /usr/lib"; exit 1; }
+          MYSQL_LIBDIR="$(dirname "$MYSQL_SO")"
+          # Runtime linking: the nix-built binary uses nix's dynamic linker, which
+          # ignores /etc/ld.so.cache, and DT_RUNPATH is not transitive -- so the
+          # system libmysqlclient's OWN deps (libz, libstdc++, ...) are unresolved
+          # at run time ("error while loading shared libraries: libz.so.1"). Point
+          # LD_LIBRARY_PATH at a curated farm of exactly libmysqlclient's
+          # non-glibc-core transitive deps. Deliberately EXCLUDE libc/libm/ld-linux:
+          # nix must own those (they are shared by soname with the binary's direct
+          # deps, and forcing a system glibc under nix's interpreter would break).
+          # GITHUB_ENV carries LD_LIBRARY_PATH to the negative-test step, which also
+          # runs the binary. (Cleaner long-term: provide mysql via derivation.nix so
+          # nix RPATHs the whole closure; done here in-job to avoid a cache-busting
+          # rebuild of every job. See PR discussion.)
+          MYSQL_RT_LIBS="$RUNNER_TEMP/mysql-runtime-libs"
+          mkdir -p "$MYSQL_RT_LIBS"
+          for so in libz.so.1 libzstd.so.1 libssl.so.3 libcrypto.so.3 libstdc++.so.6 libgcc_s.so.1 libresolv.so.2; do
+            src="$(find /usr/lib /lib -name "$so" -print -quit)"
+            if [ -n "$src" ]; then ln -sf "$src" "$MYSQL_RT_LIBS/$so"; fi
+          done
+          export LD_LIBRARY_PATH="$MYSQL_RT_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           # The nix-baked gcc does not search system /usr paths, and MSHEADER
           # baked into the nix-built compiler is "mysql.h" (mysql absent at nix
           # configure), so the generated #include <mysql.h> needs -I on the mysql
@@ -388,3 +418,29 @@ jobs:
             echo "mysql uuid FAILED: uppercase input was not normalized to lowercase"; exit 1
           fi
           echo "mysql-integration: PASS (uuid round trip incl. nullable Ref, on live MySQL)"
+
+      - name: Negative — the startup schema check REJECTS schema drift (#230)
+        run: |
+          set -uo pipefail
+          # Add an extra uw_-prefixed column the compiled binary does not know
+          # about. urweb's MySQL startup check counts uw_ columns (checkRel's
+          # q'', compared against the expected arity) so ONLY that check can
+          # catch this. Without this step the positive round trip above would
+          # pass whether the check has teeth or silently accepts anything -- and
+          # the MySQL check is a DISTINCT code path from postgres-integration's
+          # (different information_schema semantics; it is the path the uuid
+          # schema-check bug lived in), so the postgres negative test does not
+          # cover it. This locks in that the MySQL check actually rejects drift.
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest \
+            -e 'ALTER TABLE uw_uuidtest_t ADD COLUMN uw_extra int;'
+          tests/uuidtest.exe -q -a 127.0.0.1 -p 8096 & pid=$!
+          sleep 3
+          resp=$(curl -s 'http://localhost:8096/Uuidtest/main' || true)
+          kill "$pid" 2>/dev/null || true
+          echo "=== drifted-schema response ==="; echo "[$resp]"
+          # A working check aborts startup (or refuses the request), so the round
+          # trip must NOT come back. If it does, the check is a no-op.
+          if echo "$resp" | grep -q '550e8400-e29b-41d4-a716-446655440000=hello'; then
+            echo "NEGATIVE FAILED: MySQL binary served despite an unexpected extra uw_ column -- the startup schema check did NOT catch drift"; exit 1
+          fi
+          echo "mysql startup-check-rejects-drift: PASS (binary refused the drifted schema)"
