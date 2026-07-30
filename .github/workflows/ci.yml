@@ -248,3 +248,160 @@ jobs:
             echo "NEGATIVE FAILED: binary served despite an unexpected extra column -- the startup schema check (#230) did NOT catch schema drift"; exit 1
           fi
           echo "startup-check-rejects-drift: PASS (binary refused the drifted schema)"
+
+  # MySQL RUNTIME integration. Before this job the MySQL backend had NO runtime
+  # coverage: nix-build tests only sqlite, postgres-integration only postgres.
+  # The whole `-dbms mysql` path -- DDL, prepared statements, the #230 startup
+  # schema-structure check, and the native uuid column -- was exercised only by
+  # construction, which is exactly why two adversarial reviews of the uuid
+  # feature missed a real bug (the schema check compared data_type against
+  # "char(36)" instead of the bare "char" MySQL reports for a CHAR(36) column,
+  # so every uuid table failed startup). This job compiles + runs tests/uuidtest
+  # against a live mysql:8.0, closing that gap.
+  #
+  # Unlike postgres-integration it builds the compiler with the SYSTEM autotools
+  # toolchain, not nix: a nix-built binary cannot cleanly link the system
+  # libmysqlclient -- adding /usr to the link path drags system glibc into the
+  # binary's RUNPATH, which then mixes with nix's newer glibc (fatal
+  # `GLIBC_ABI_DT_X86_64_PLT not found`). An all-system build keeps libc,
+  # libmysqlclient and their deps consistent. (The nix-native alternative is to
+  # add mysql to derivation.nix so nix RPATHs the whole closure; deferred as it
+  # would cache-bust a cold rebuild of every job.) The MySQL codegen under test
+  # is identical regardless of which toolchain built the compiler.
+  mysql-integration:
+    name: mysql integration (runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          # Create root@'%' so the runner can reach it over the mapped TCP port.
+          MYSQL_ROOT_HOST: "%"
+          MYSQL_DATABASE: urwebtest
+        ports:
+          - 3306:3306
+        # mysqladmin ping returns success once the server answers (even on
+        # access-denied), so it needs no credentials and is a clean readiness
+        # gate through first-boot initialization.
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain + MySQL client (Oracle libmysqlclient, not mariadb-compat)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          # Oracle libmysqlclient, NOT the mariadb-compat default-libmysqlclient-dev:
+          # urweb's generated code uses a bool-based MYSQL_BIND (is_null is
+          # `bool *`), matching Oracle MySQL 8 headers; mariadb keeps `my_bool *`,
+          # which would fail urweb's -Werror C compile on a pointer-type mismatch.
+          # mysql-client-8.0 is the Oracle CLI (schema load + a
+          # --get-server-public-key that clears caching_sha2 for the bootstrap).
+          sudo apt-get install -y -qq \
+            mlton build-essential automake autoconf libtool pkg-config \
+            libssl-dev libicu-dev libpq-dev libsqlite3-dev \
+            libmysqlclient-dev mysql-client-8.0
+          test -f /usr/include/mysql/mysql.h \
+            || { echo "SETUP FAILED: mysql.h not found after install"; exit 1; }
+
+      - name: Build the compiler (autotools, system toolchain)
+        run: |
+          set -euo pipefail
+          # configure auto-detects MySQL and bakes MSHEADER=mysql/mysql.h, so the
+          # generated C's #include <mysql/mysql.h> resolves on the system gcc's
+          # default include path -- no -I/-L needed at app-compile time.
+          ./autogen.sh
+          ./configure
+          make -j"$(nproc)"
+          sudo make install
+          urweb -version
+
+      - name: Bootstrap a mysql_native_password app user
+        run: |
+          set -euo pipefail
+          # mysql:8.0's root uses caching_sha2_password. Against mysql:8.0's
+          # default TLS a caching_sha2 user works (password travels inside TLS),
+          # but we give the app a mysql_native_password user so its authentication
+          # does not depend on the TLS handshake: if the connection falls back to
+          # plaintext, native_password still authenticates, whereas caching_sha2
+          # would then require an RSA public key the urweb runtime never requests.
+          # The CLI's own root connection uses TLS (with --get-server-public-key
+          # as a plaintext fallback) to run the GRANT.
+          mysql --get-server-public-key -h 127.0.0.1 -P 3306 -uroot -proot -e "
+            CREATE USER IF NOT EXISTS 'urweb'@'%' IDENTIFIED WITH mysql_native_password BY 'urweb';
+            GRANT ALL PRIVILEGES ON urwebtest.* TO 'urweb'@'%';
+            FLUSH PRIVILEGES;"
+          # Prove the app's connection path works before urweb depends on it.
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest -e "SELECT 1;"
+
+      - name: Compile + run tests/uuidtest against live MySQL (native uuid via char(36))
+        run: |
+          set -euo pipefail
+          DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
+          # System gcc finds mysql/mysql.h and libmysqlclient on its default
+          # paths, so the compile needs no extra include/lib flags.
+          urweb -dbms mysql -db "$DB" -sql tests/uuidtest.sql tests/uuidtest
+          echo "=== emitted schema ==="; cat tests/uuidtest.sql
+          # uuid maps to MySQL char(36) (its canonical 8-4-4-4-12 text form), for
+          # both the primary key and the NULLABLE Ref column.
+          grep -Eiq 'uw_id[[:space:]]+char\(36\)' tests/uuidtest.sql \
+            || { echo "uuid FAILED: Id column is not char(36) on MySQL"; exit 1; }
+          grep -Eiq 'uw_ref[[:space:]]+char\(36\)' tests/uuidtest.sql \
+            || { echo "uuid FAILED: nullable Ref column is not char(36) on MySQL"; exit 1; }
+          # Load the urweb-generated schema.
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/uuidtest.sql
+          # Run the standalone server: startup performs the #230 schema-structure
+          # check against the loaded schema before serving. This is the exact
+          # check that rejected char(36) uuid tables until the p_sql_type_base fix
+          # -- so a green run here is the regression guard for that bug. Capture
+          # its stdout+stderr so a startup/connect failure is visible.
+          tests/uuidtest.exe -q -a 127.0.0.1 -p 8095 >/tmp/uuidmy.log 2>&1 & echo $! > /tmp/uuidmy.pid
+          sleep 3
+          out=$(curl -s 'http://localhost:8095/Uuidtest/main' || true)
+          kill "$(cat /tmp/uuidmy.pid)" 2>/dev/null || true
+          echo "=== server log ==="; cat /tmp/uuidmy.log 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # Full round trip through a native uuid PK, INCLUDING the nullable Ref
+          # column (the option uuid write/read path). The app only serves at all
+          # if its startup schema check passed on every column.
+          echo "$out" | grep -q '550e8400-e29b-41d4-a716-446655440000=hello' \
+            || { echo "mysql uuid FAILED: id/label round trip broke"; exit 1; }
+          echo "$out" | grep -q 'ref=550e8400-e29b-41d4-a716-446655440000' \
+            || { echo "mysql uuid FAILED: nullable ref round trip broke (option uuid path)"; exit 1; }
+          # Prove normalization happened: the UPPERCASE input must not survive.
+          if echo "$out" | grep -q '550E8400'; then
+            echo "mysql uuid FAILED: uppercase input was not normalized to lowercase"; exit 1
+          fi
+          echo "mysql-integration: PASS (uuid round trip incl. nullable Ref, on live MySQL)"
+
+      - name: Negative — the startup schema check REJECTS schema drift (#230)
+        run: |
+          set -uo pipefail
+          # Add an extra uw_-prefixed column the compiled binary does not know
+          # about. urweb's MySQL startup check counts uw_ columns (checkRel's
+          # q'', compared against the expected arity) so ONLY that check can
+          # catch this. Without this step the positive round trip above would
+          # pass whether the check has teeth or silently accepts anything -- and
+          # the MySQL check is a DISTINCT code path from postgres-integration's
+          # (different information_schema semantics; it is the path the uuid
+          # schema-check bug lived in), so the postgres negative test does not
+          # cover it. This locks in that the MySQL check actually rejects drift.
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest \
+            -e 'ALTER TABLE uw_uuidtest_t ADD COLUMN uw_extra int;'
+          tests/uuidtest.exe -q -a 127.0.0.1 -p 8096 & pid=$!
+          sleep 3
+          resp=$(curl -s 'http://localhost:8096/Uuidtest/main' || true)
+          kill "$pid" 2>/dev/null || true
+          echo "=== drifted-schema response ==="; echo "[$resp]"
+          # A working check aborts startup (or refuses the request), so the round
+          # trip must NOT come back. If it does, the check is a no-op.
+          if echo "$resp" | grep -q '550e8400-e29b-41d4-a716-446655440000=hello'; then
+            echo "NEGATIVE FAILED: MySQL binary served despite an unexpected extra uw_ column -- the startup schema check did NOT catch drift"; exit 1
+          fi
+          echo "mysql startup-check-rejects-drift: PASS (binary refused the drifted schema)"
