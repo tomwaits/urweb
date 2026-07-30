@@ -117,6 +117,35 @@ jobs:
             || { echo "SQLite numeric arithmetic no longer matches the documented float-approximate contract: $out"; exit 1; }
           echo "sqlite numeric-arithmetic-is-float: PASS (documented inexactness, pinned)"
 
+      - name: Compile + run tests/datetest on SQLite (native date via text column)
+        run: |
+          set -euo pipefail
+          # SQLite has no dedicated date type: a `date` column is stored as text.
+          # This exercises the sqlite date path (bind/read as a canonical
+          # YYYY-MM-DD string) plus the backend-independent uw_date_valid battery,
+          # giving `date` full three-backend runtime coverage (pg + mysql are in
+          # the integration jobs).
+          result/bin/urweb -dbms sqlite -db /tmp/date.db -sql /tmp/date.sql tests/datetest
+          rm -f /tmp/date.db
+          python3 -c "import sqlite3; c=sqlite3.connect('/tmp/date.db'); c.executescript(open('/tmp/date.sql').read()); c.close()"
+          tests/datetest.exe -q -a 127.0.0.1 -p 8105 & echo $! > /tmp/date.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8105/Datetest/main' || true)
+          kill "$(cat /tmp/date.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # The leap-year / day-of-month / month-bound / shape validation battery
+          # must emit NO BAD_ marker...
+          if echo "$out" | grep -q 'BAD_'; then
+            echo "date FAILED: uw_date_valid mis-classified a date (see BAD_ marker above)"; exit 1
+          fi
+          # ...and the three rows must round-trip exactly: a NULL nullable column
+          # reads back as `none` (the Nullable Date None branch), a year < 1000
+          # ("0500") comes back zero-padded to the canonical 4-digit form, and the
+          # "9999" upper boundary + a Some nullable value all survive intact.
+          echo "$out" | grep -q 'DATE_ROUNDTRIP:0500-06-15=low,ref=none;2024-01-15=hello,ref=2024-01-15;9999-12-31=max,ref=9999-12-31;' \
+            || { echo "date FAILED: date round trip broke on SQLite: $out"; exit 1; }
+          echo "sqlite date-integration: PASS"
+
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
   # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
   # the startup schema-structure check (#230), timestamp handling (#163), the
@@ -319,6 +348,39 @@ jobs:
           echo "$out" | grep -q "Can't parse numeric" \
             || { echo "arith-overflow FAILED: Postgres did not loudly reject an over-scale numeric result"; exit 1; }
           echo "pg numeric-overflow-is-loud: PASS"
+
+      - name: Compile + run tests/datetest against live Postgres (native date column)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          result/bin/urweb -dbms postgres -db "$DB" -sql tests/datetest.sql tests/datetest
+          echo "=== emitted schema ==="; cat tests/datetest.sql
+          # Id and the nullable Ref must both be a NATIVE Postgres `date` column.
+          grep -Eiq 'uw_id[[:space:]]+date([[:space:]]|,)' tests/datetest.sql \
+            || { echo "date FAILED: Id column is not a native Postgres date"; exit 1; }
+          grep -Eiq 'uw_ref[[:space:]]+date([[:space:]]|,)' tests/datetest.sql \
+            || { echo "date FAILED: nullable Ref column is not a native Postgres date"; exit 1; }
+          psql "$DB" -v ON_ERROR_STOP=1 -f tests/datetest.sql
+          tests/datetest.exe -q -a 127.0.0.1 -p 8106 & echo $! > /tmp/date.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8106/Datetest/main' || true)
+          kill "$(cat /tmp/date.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # The validation battery (leap-year rule, per-month day counts, month/day
+          # bounds, YYYY-MM-DD shape) must emit NO BAD_ACCEPT / BAD_REJECT marker.
+          if echo "$out" | grep -q 'BAD_'; then
+            echo "date FAILED: uw_date_valid mis-classified a date (see BAD_ marker above)"; exit 1
+          fi
+          # And the three rows must round-trip exactly, queried by date equality
+          # (the WHERE-parameter path, exercising the ::date write cast and the ISO
+          # read path): a NULL Ref reads back as `none` (the Nullable Date None
+          # branch), the year-0500 row proves Postgres zero-pads a <1000 year back
+          # to canonical YYYY-MM-DD on read, and 9999 is the upper boundary.
+          echo "$out" | grep -q 'DATE_ROUNDTRIP:0500-06-15=low,ref=none;2024-01-15=hello,ref=2024-01-15;9999-12-31=max,ref=9999-12-31;' \
+            || { echo "date FAILED: native date round trip broke on Postgres"; exit 1; }
+          echo "pg date-integration: PASS"
 
       - name: Startup warns on database/server time-zone skew (#163)
         env:
@@ -578,6 +640,40 @@ jobs:
           echo "$out" | grep -q 'OVF:1.00000000000000000002' \
             || { echo "arith-overflow FAILED: MySQL over-scale numeric no longer matches the documented (silently-rounded) contract"; exit 1; }
           echo "mysql numeric-overflow-rounds-silently: PASS (documented divergence, pinned)"
+
+      - name: Compile + run tests/datetest against live MySQL (native date column)
+        run: |
+          set -euo pipefail
+          DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
+          urweb -dbms mysql -db "$DB" -sql tests/datetest.sql tests/datetest
+          echo "=== emitted schema ==="; cat tests/datetest.sql
+          # Id and the nullable Ref must both be a native MySQL `date` column. This
+          # is also the uuid-bug guard for date: MySQL reports a DATE column's
+          # data_type as the bare "date" (no suffix), which is what the #230 startup
+          # schema-structure check compares against p_sql_type_base -- if that ever
+          # drifts, the binary fails startup below (proving the check runs for date).
+          grep -Eiq 'uw_id[[:space:]]+date([[:space:]]|,)' tests/datetest.sql \
+            || { echo "date FAILED: Id column is not a native MySQL date"; exit 1; }
+          grep -Eiq 'uw_ref[[:space:]]+date([[:space:]]|,)' tests/datetest.sql \
+            || { echo "date FAILED: nullable Ref column is not a native MySQL date"; exit 1; }
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/datetest.sql
+          tests/datetest.exe -q -a 127.0.0.1 -p 8107 >/tmp/datemy.log 2>&1 & echo $! > /tmp/date.pid
+          sleep 3
+          out=$(curl -s 'http://localhost:8107/Datetest/main' || true)
+          kill "$(cat /tmp/date.pid)" 2>/dev/null || true
+          echo "=== server log ==="; cat /tmp/datemy.log 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # The validation battery must emit NO BAD_ACCEPT / BAD_REJECT marker.
+          if echo "$out" | grep -q 'BAD_'; then
+            echo "date FAILED: uw_date_valid mis-classified a date (see BAD_ marker above)"; exit 1
+          fi
+          # And the three rows must round-trip exactly, queried by date equality: a
+          # NULL Ref reads back as `none` (the Nullable Date None branch), the
+          # year-0500 row proves MySQL returns a <1000 year zero-padded to the
+          # canonical 10-char YYYY-MM-DD on read, and 9999 is the upper boundary.
+          echo "$out" | grep -q 'DATE_ROUNDTRIP:0500-06-15=low,ref=none;2024-01-15=hello,ref=2024-01-15;9999-12-31=max,ref=9999-12-31;' \
+            || { echo "date FAILED: native date round trip broke on MySQL"; exit 1; }
+          echo "mysql date-integration: PASS (date round trip incl. nullable Ref, on live MySQL)"
 
       - name: Negative — the startup schema check REJECTS schema drift (#230)
         run: |

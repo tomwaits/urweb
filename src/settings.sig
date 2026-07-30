@@ -165,6 +165,7 @@ signature SETTINGS = sig
            | Uuid
            | Timestamptz
            | Numeric
+           | Date
            | Channel
            | Client
            | Nullable of sql_type

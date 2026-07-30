@@ -3111,6 +3111,88 @@ char *uw_Basis_sqlifyNumericN(uw_context ctx, uw_Basis_numeric *n) {
     return uw_Basis_sqlifyNumeric(ctx, *n);
 }
 
+char *uw_sqlsuffixDate = "";
+
+/* date: a calendar date held as its canonical "YYYY-MM-DD" string -- a validated
+ * proper Gregorian date (month 1-12, day valid for the month, leap years
+ * honored).  Like uuid it is stored/compared as a quoted literal cast to the
+ * backend's date column type (uw_sqlsuffixDate = "::date" on Postgres). */
+static int uw_date_valid(uw_Basis_string s) {
+  static const int mdays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  int y, m, d, i, maxd;
+
+  if (!s)
+    return 0;
+  for (i = 0; i < 10; i++) {
+    if (i == 4 || i == 7) {
+      if (s[i] != '-')
+        return 0;
+    } else if (s[i] < '0' || s[i] > '9')
+      return 0;
+  }
+  if (s[10] != 0)
+    return 0;
+  y = (s[0]-'0')*1000 + (s[1]-'0')*100 + (s[2]-'0')*10 + (s[3]-'0');
+  m = (s[5]-'0')*10 + (s[6]-'0');
+  d = (s[8]-'0')*10 + (s[9]-'0');
+  /* Reject year 0000: the proleptic Gregorian calendar Postgres uses has no
+     year zero (1 BC is followed by 1 AD), and MySQL treats "0000-00-00" as its
+     zero-date sentinel -- so 0000 is not a portable calendar date. */
+  if (y < 1 || m < 1 || m > 12 || d < 1)
+    return 0;
+  maxd = mdays[m-1];
+  if (m == 2 && ((y%4 == 0 && y%100 != 0) || y%400 == 0))
+    maxd = 29;
+  return d <= maxd;
+}
+
+uw_Basis_string uw_Basis_dateToString(uw_context ctx, uw_Basis_date d) {
+  (void)ctx;
+  return d;
+}
+
+/* Returns NULL (Ur [None]) for anything that is not a canonical YYYY-MM-DD date. */
+uw_Basis_date uw_Basis_stringToDate(uw_context ctx, uw_Basis_string s) {
+  char *r;
+  if (!uw_date_valid(s))
+    return NULL;
+  r = uw_malloc(ctx, 11);
+  memcpy(r, s, 11);
+  return r;
+}
+
+uw_Basis_date uw_Basis_stringToDate_error(uw_context ctx, uw_Basis_string s) {
+  char *r;
+  if (!uw_date_valid(s))
+    uw_error(ctx, FATAL, "Can't parse date: %s", uw_Basis_htmlifyString(ctx, s));
+  r = uw_malloc(ctx, 11);
+  memcpy(r, s, 11);
+  return r;
+}
+
+uw_Basis_string uw_Basis_sqlifyDate(uw_context ctx, uw_Basis_date d) {
+  char *r, *s2;
+
+  if (!uw_date_valid(d))
+    uw_error(ctx, FATAL, "sqlifyDate: not a valid date");
+  uw_check_heap(ctx, 10 + 2 + strlen(uw_sqlsuffixDate) + 1);
+  r = s2 = ctx->heap.front;
+  *s2++ = '\'';
+  memcpy(s2, d, 10);
+  s2 += 10;
+  *s2++ = '\'';
+  strcpy(s2, uw_sqlsuffixDate);
+  ctx->heap.front = s2 + strlen(uw_sqlsuffixDate) + 1;
+  return r;
+}
+
+char *uw_Basis_sqlifyDateN(uw_context ctx, uw_Basis_date *d) {
+  if (d == NULL)
+    return "NULL";
+  else
+    return uw_Basis_sqlifyDate(ctx, *d);
+}
+
 char *uw_sqlsuffixBlob = "::bytea";
 
 uw_Basis_string uw_Basis_sqlifyBlob(uw_context ctx, uw_Basis_blob b) {
