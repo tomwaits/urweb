@@ -389,6 +389,8 @@ fastcgi.server = (
 
 There is an additional convenience method for invoking \texttt{urweb}.  If the main argument is \texttt{FOO}, and \texttt{FOO.ur} exists but \texttt{FOO.urp} doesn't, then the invocation is interpreted as if called on a \texttt{.urp} file containing \texttt{FOO} as its only main entry, with an additional \texttt{rewrite all FOO/*} directive.
 
+A note on \emph{schema migrations} (upstream issue \#65): Ur/Web deliberately has no built-in migration engine.  The emitted SQL script (\texttt{-sql}/the \texttt{sql} directive) is a fresh-install schema, and the startup checks verify -- but never alter -- a live database.  The workflow that works well with standard tooling, proposed and validated in that issue's thread: load the newly emitted script into a \emph{scratch} database, then diff the live database against it with a schema-diff tool (e.g.\ \texttt{migra} for PostgreSQL, which emits the \texttt{ALTER} statements to review and apply).  Because Ur/Web's startup schema check is strict, a successfully restarted application is itself confirmation the migration matched the compiled expectations.
+
 There are also two experimental compiler extensions enabled with flags \texttt{-iflow} and \texttt{-sqlcache}.  They are intentionally not documented further here, to indicate just how very experimental they are!
 
 \subsection{Tutorial Formatting}
