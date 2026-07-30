@@ -30,6 +30,12 @@ typedef uw_Basis_string uw_Basis_xbody;
 typedef uw_Basis_string uw_Basis_css_class;
 typedef uw_Basis_string uw_Basis_uuid;
 
+/* A timestamptz is the same absolute instant as a time; it differs only in how
+ * it is serialized to/from SQL: always in UTC, so it is immune to the
+ * server-vs-database session-zone skew (issue #163) that the localtime-based
+ * `time` serialization suffers. */
+typedef uw_Basis_time uw_Basis_timestamptz;
+
 typedef unsigned uw_Basis_client;
 typedef struct {
   unsigned cli, chn;

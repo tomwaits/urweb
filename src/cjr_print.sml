@@ -413,6 +413,7 @@ fun p_unsql wontLeakStrings env (tAll as (t, loc)) e eLen =
             box [string "uw_strdup(ctx, ", e, string ")"]
       | TFfi ("Basis", "bool") => box [string "uw_Basis_stringToBool_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "time") => box [string "uw_Basis_stringToTime_error(ctx, ", e, string ")"]
+      | TFfi ("Basis", "timestamptz") => box [string "uw_Basis_stringToTimestamptz_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "blob") => box [string "uw_Basis_stringToBlob_error(ctx, ",
                                        e,
                                        string ", ",
@@ -502,6 +503,7 @@ fun getPargs (e, _) =
       | EFfiApp ("Basis", "sqlifyTime", [(e, _)]) => [(e, Time)]
       | EFfiApp ("Basis", "sqlifyBlob", [(e, _)]) => [(e, Blob)]
       | EFfiApp ("Basis", "sqlifyUuid", [(e, _)]) => [(e, Uuid)]
+      | EFfiApp ("Basis", "sqlifyTimestamptz", [(e, _)]) => [(e, Timestamptz)]
       | EFfiApp ("Basis", "sqlifyChannel", [(e, _)]) => [(e, Channel)]
       | EFfiApp ("Basis", "sqlifyClient", [(e, _)]) => [(e, Client)]
 
@@ -1405,6 +1407,7 @@ fun sql_type_in env (tAll as (t, loc)) =
       | TFfi ("Basis", "time") => Time
       | TFfi ("Basis", "blob") => Blob
       | TFfi ("Basis", "uuid") => Uuid
+      | TFfi ("Basis", "timestamptz") => Timestamptz
       | TFfi ("Basis", "channel") => Channel
       | TFfi ("Basis", "client") => Client
       | TOption t' => Nullable (sql_type_in env t')

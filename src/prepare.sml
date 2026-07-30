@@ -78,6 +78,7 @@ fun prepString (e, st) =
                   | EFfiApp ("Basis", "sqlifyTime", [_]) => doOne Time
                   | EFfiApp ("Basis", "sqlifyBlob", [_]) => doOne Blob
                   | EFfiApp ("Basis", "sqlifyUuid", [_]) => doOne Uuid
+                  | EFfiApp ("Basis", "sqlifyTimestamptz", [_]) => doOne Timestamptz
                   | EFfiApp ("Basis", "sqlifyChannel", [_]) => doOne Channel
                   | EFfiApp ("Basis", "sqlifyClient", [_]) => doOne Client
 

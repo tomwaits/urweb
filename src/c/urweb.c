@@ -3187,6 +3187,134 @@ char *uw_Basis_sqlifyTimeN(uw_context ctx, uw_Basis_time *t) {
     return uw_Basis_sqlifyTime(ctx, *t);
 }
 
+/* timestamptz: the same absolute instant as time, but ALWAYS serialized in UTC
+ * (gmtime_r on write, timegm on read) and SELF-DESCRIBING -- an explicit "+00"
+ * UTC offset is emitted and honored on read.  Because the value carries its zone
+ * and both ends use UTC, it never passes through a server-local or database-
+ * session-zone conversion, so the server-vs-database skew that plagues the
+ * localtime-based `time` (issue #163) cannot occur.  Belt-and-suspenders per
+ * backend: Postgres pins the session to UTC in uw_db_init; MySQL stores into a
+ * zone-agnostic `datetime` column (no session pin needed). */
+char *uw_Basis_sqlifyTimestamptz(uw_context ctx, uw_Basis_time t) {
+  size_t len;
+  char *r, *s;
+  struct tm stm = {};
+
+  if (gmtime_r(&t.seconds, &stm)) {
+    s = uw_malloc(ctx, TIMES_MAX);
+    len = strftime(s, TIMES_MAX, TIME_FMT_PG, &stm);
+    if (uw_sql_type_annotations) {
+      if (t.microseconds) {
+        r = uw_malloc(ctx, len + 32);
+        sprintf(r, "'%s.%06u+00'::timestamptz", s, t.microseconds);
+      } else {
+        r = uw_malloc(ctx, len + 25);
+        sprintf(r, "'%s+00'::timestamptz", s);
+      }
+    } else {
+      if (t.microseconds) {
+        r = uw_malloc(ctx, len + 20);
+        sprintf(r, "'%s.%06u+00'", s, t.microseconds);
+      } else {
+        r = uw_malloc(ctx, len + 13);
+        sprintf(r, "'%s+00'", s);
+      }
+    }
+    return r;
+  } else
+    return "<Invalid time>";
+}
+
+char *uw_Basis_sqlifyTimestamptzN(uw_context ctx, uw_Basis_time *t) {
+  if (t == NULL)
+    return "NULL";
+  else
+    return uw_Basis_sqlifyTimestamptz(ctx, *t);
+}
+
+char *uw_Basis_ensqlTimestamptz(uw_context ctx, uw_Basis_time t) {
+  size_t len;
+  char *r;
+  struct tm stm = {};
+
+  if (gmtime_r(&t.seconds, &stm)) {
+    uw_check_heap(ctx, TIMES_MAX);
+    r = ctx->heap.front;
+    len = strftime(r, TIMES_MAX-11, TIME_FMT_PG, &stm);
+    ctx->heap.front += len;
+    /* self-describing UTC: ".ffffff+00" (matches sqlifyTimestamptz, so bound and
+       inlined values compare equal as text on backends like SQLite). */
+    sprintf(ctx->heap.front, ".%06u+00", t.microseconds);
+    ctx->heap.front += 11;
+    return r;
+  } else
+    return "<Invalid time>";
+}
+
+char *uw_Basis_attrifyTimestamptz(uw_context ctx, uw_Basis_time t) {
+  size_t len;
+  char *r;
+  struct tm stm = {};
+
+  if (gmtime_r(&t.seconds, &stm)) {
+    uw_check_heap(ctx, TIMES_MAX);
+    r = ctx->heap.front;
+    len = strftime(r, TIMES_MAX, TIME_FMT_PG, &stm);
+    ctx->heap.front += len+1;
+    return r;
+  } else
+    return "<Invalid time>";
+}
+
+/* Parse "YYYY-MM-DD HH:MM:SS[.ffffff][{+,-}HH[[:]MM]]" as an absolute instant.
+   The wall-clock is UTC-anchored via timegm; a trailing numeric timezone offset
+   is subtracted so the recovered instant is correct even if the value did not
+   arrive in UTC (values normally carry "+00", but honoring any offset makes the
+   read robust to a non-UTC session or DateStyle).  Returns 1 on success. */
+static int uw_parse_timestamptz(uw_Basis_string s, uw_Basis_time *out) {
+  struct tm stm = {};
+  char *rest = strptime(s, TIME_FMT_PG, &stm);
+  time_t secs;
+  unsigned us = 0;
+
+  if (!rest)
+    return 0;
+  secs = timegm(&stm);
+  if (*rest == '.') {
+    const char *p = rest + 1;
+    int ndig = 0;
+    while (ndig < 6 && *p >= '0' && *p <= '9') { us = us*10 + (unsigned)(*p - '0'); p++; ndig++; }
+    while (ndig < 6) { us *= 10; ndig++; }
+    while (*p >= '0' && *p <= '9') p++;   /* ignore digits beyond microseconds */
+    rest = (char *)p;
+  }
+  if (*rest == '+' || *rest == '-') {
+    int sign = (*rest == '-') ? -1 : 1;
+    const char *p = rest + 1;
+    int oh = 0, om = 0;
+    if (p[0] >= '0' && p[0] <= '9' && p[1] >= '0' && p[1] <= '9') {
+      oh = (p[0]-'0')*10 + (p[1]-'0'); p += 2;
+      if (*p == ':') p++;
+      if (p[0] >= '0' && p[0] <= '9' && p[1] >= '0' && p[1] <= '9')
+        om = (p[0]-'0')*10 + (p[1]-'0');
+    }
+    secs -= sign * (oh*3600 + om*60);
+  }
+  out->seconds = secs;
+  out->microseconds = us;
+  return 1;
+}
+
+uw_Basis_time uw_Basis_timestamptzToTime(uw_context ctx, uw_Basis_timestamptz t) {
+  (void)ctx;
+  return t;
+}
+
+uw_Basis_timestamptz uw_Basis_timeToTimestamptz(uw_context ctx, uw_Basis_time t) {
+  (void)ctx;
+  return t;
+}
+
 char *uw_Basis_ensqlBool(uw_Basis_bool b) {
   static uw_Basis_int tru = 1;
   static uw_Basis_int fals = 0;
@@ -3509,6 +3637,14 @@ uw_Basis_time uw_Basis_stringToTime_error(uw_context ctx, uw_Basis_string s) {
     } else
       uw_error(ctx, FATAL, "Can't parse time: %s", uw_Basis_htmlifyString(ctx, s));
   }
+}
+
+uw_Basis_time uw_Basis_stringToTimestamptz_error(uw_context ctx, uw_Basis_string s) {
+  uw_Basis_time r;
+  if (uw_parse_timestamptz(s, &r))
+    return r;
+  else
+    uw_error(ctx, FATAL, "Can't parse timestamptz: %s", uw_Basis_htmlifyString(ctx, s));
 }
 
 uw_Basis_time uw_Basis_stringToTimef_error(uw_context ctx, const char *fmt, uw_Basis_string s) {
