@@ -608,6 +608,7 @@ fun p_sql_ctype t =
           | Channel => "uw_Basis_channel"
           | Client => "uw_Basis_client"
           | Nullable String => "uw_Basis_string"
+          | Nullable Uuid => "uw_Basis_uuid"
           | Nullable t => p_sql_ctype t ^ "*"
     end
 

@@ -2016,6 +2016,7 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                       | L'.TFfi ("Basis", "bool") => Settings.Bool
                       | L'.TFfi ("Basis", "time") => Settings.Time
                       | L'.TFfi ("Basis", "blob") => Settings.Blob
+                      | L'.TFfi ("Basis", "uuid") => Settings.Uuid
                       | L'.TFfi ("Basis", "channel") => Settings.Channel
                       | L'.TFfi ("Basis", "client") => Settings.Client
                       | _ => raise Fail "Monoize/sql_option_prim: invalid SQL type"

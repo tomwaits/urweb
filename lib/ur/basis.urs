@@ -1066,6 +1066,10 @@ val uuidToString : uuid -> string
 val stringToUuid : string -> option uuid
 (* [stringToUuid] returns [Some] exactly for a canonical 8-4-4-4-12 hex UUID,
  * normalized to lowercase; [None] otherwise. *)
+(* NB: [uuid] is a server-side SQL type; it cannot currently cross the
+ * client/URL boundary (no urlify/unurlify), so it may not appear directly in
+ * page-handler inputs, links, or forms. Round-trip through [string] with
+ * [uuidToString] / [stringToUuid] at those boundaries. *)
 
 type postBody
 val postType : postBody -> string
