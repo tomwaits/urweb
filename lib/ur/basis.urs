@@ -26,6 +26,13 @@ type timestamptz
  * scale would round writes; create numeric columns via Ur/Web, or match
  * (65,30). *)
 type numeric
+(* A calendar date (no time of day, no timezone), held as its canonical
+ * "YYYY-MM-DD" string.  Construct with stringToDate, which returns None for
+ * anything that is not a proper Gregorian date (month 1-12, day valid for the
+ * month, leap years honored) so malformed dates fail loudly rather than being
+ * silently coerced.  Stored in the backend's native date column (Postgres/MySQL
+ * `date`; SQLite text).  Like [uuid], [date] is a server-side SQL type. *)
+type date
 
 type unit = {}
 
@@ -309,6 +316,7 @@ val sql_blob : sql_injectable_prim blob
 val sql_uuid : sql_injectable_prim uuid
 val sql_timestamptz : sql_injectable_prim timestamptz
 val sql_numeric : sql_injectable_prim numeric
+val sql_date : sql_injectable_prim date
 val sql_channel : t ::: Type -> sql_injectable_prim (channel t)
 val sql_client : sql_injectable_prim client
 
@@ -1117,6 +1125,13 @@ val stringToNumeric : string -> option numeric
  * "42"), normalized to canonical form (redundant zeros dropped); [None]
  * otherwise.  Like [uuid], [numeric] is a server-side SQL type and does not
  * currently cross the client/URL boundary. *)
+
+val dateToString : date -> string
+val stringToDate : string -> option date
+(* [dateToString] yields the canonical "YYYY-MM-DD" text.  [stringToDate] returns
+ * [Some] for a proper Gregorian date in that exact form and [None] otherwise.
+ * Like [uuid], [date] is a server-side SQL type and does not currently cross the
+ * client/URL boundary. *)
 
 val timestamptzToTime : timestamptz -> time
 val timeToTimestamptz : time -> timestamptz

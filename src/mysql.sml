@@ -49,6 +49,11 @@ fun p_sql_type t =
          "decimal" (see p_sql_type_base); the read normalizes MySQL's trailing-
          zero padding back to canonical form. *)
       | Numeric => "decimal(65,30)"
+      (* A `date` column stores just the calendar date; data_type is the bare
+         "date" (no suffix), so p_sql_type_base matches without adjustment.  We
+         bind/read it as a canonical "YYYY-MM-DD" string (MYSQL_TYPE_STRING),
+         exactly like uuid. *)
+      | Date => "date"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type t
@@ -70,6 +75,7 @@ fun p_buffer_type t =
          broken-down value is stored literally, keeping the round-trip skew-free. *)
       | Timestamptz => "MYSQL_TYPE_TIMESTAMP"
       | Numeric => "MYSQL_TYPE_STRING"
+      | Date => "MYSQL_TYPE_STRING"
       | Channel => "MYSQL_TYPE_LONGLONG"
       | Client => "MYSQL_TYPE_LONG"
       | Nullable t => p_buffer_type t
@@ -93,6 +99,7 @@ fun p_sql_type_base t =
       | Uuid => "char"
       | Timestamptz => "datetime"
       | Numeric => "decimal"
+      | Date => "date"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type_base t
@@ -697,6 +704,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                string "})"]
               | Uuid => getter String
               | Numeric => box [string "uw_Basis_stringToNumeric_error(ctx, ", getter String, string ")"]
+              | Date => box [string "uw_Basis_stringToDate_error(ctx, ", getter String, string ")"]
               | Blob => box [string "({",
                              newline,
                              string "uw_Basis_blob b = {length",
@@ -773,6 +781,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                    String => getter t
                                  | Uuid => getter t
                                  | Numeric => getter t
+                                 | Date => getter t
                                  | _ => box [string "({",
                                              newline,
                                              string (p_sql_ctype t),
@@ -826,6 +835,7 @@ fun queryCommon {loc, query, cols, doCols} =
                                                                      newline]
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
+                                                    | Date => buffers String
                                                     | Blob => box [string "unsigned long length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -874,6 +884,7 @@ fun queryCommon {loc, query, cols, doCols} =
                                                                      newline]
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
+                                                    | Date => buffers String
                                                     | Char => box [string "out[",
                                                                    string (Int.toString i),
                                                                    string "].buffer_length = 1;",
@@ -1032,6 +1043,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                      newline]
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
+                                                    | Date => buffers String
                                                     | Blob => box [string "unsigned long in_length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -1144,6 +1156,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                      newline]
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
+                                                    | Date => buffers String
                                                     | Char => box [string "in[",
                                                                    string (Int.toString i),
                                                                    string "].buffer = &arg",
@@ -1313,6 +1326,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                                    String => box []
                                                                                  | Uuid => box []
                                                                                  | Numeric => box []
+                                                                                 | Date => box []
                                                                                  | _ =>
                                                                                    box [string (p_sql_ctype t),
                                                                                         space,
@@ -1414,6 +1428,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                      newline]
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
+                                                    | Date => buffers String
                                                     | Blob => box [string "unsigned long in_length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -1507,6 +1522,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                      newline]
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
+                                                    | Date => buffers String
                                                     | Blob => box [string "in[",
                                                                    string (Int.toString i),
                                                                    string "].buffer = arg",
@@ -1666,6 +1682,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                                    String => box []
                                                                                  | Uuid => box []
                                                                                  | Numeric => box []
+                                                                                 | Date => box []
                                                                                  | _ =>
                                                                                    box [string (p_sql_ctype t),
                                                                                         space,

@@ -225,6 +225,11 @@ uw_Basis_string uw_Basis_sqlifyNumericN(struct uw_context *, uw_Basis_numeric *)
 uw_Basis_string uw_Basis_numericToString(struct uw_context *, uw_Basis_numeric);
 uw_Basis_numeric uw_Basis_stringToNumeric(struct uw_context *, uw_Basis_string);
 uw_Basis_numeric uw_Basis_stringToNumeric_error(struct uw_context *, uw_Basis_string);
+uw_Basis_string uw_Basis_sqlifyDate(struct uw_context *, uw_Basis_date);
+uw_Basis_string uw_Basis_sqlifyDateN(struct uw_context *, uw_Basis_date *);
+uw_Basis_string uw_Basis_dateToString(struct uw_context *, uw_Basis_date);
+uw_Basis_date uw_Basis_stringToDate(struct uw_context *, uw_Basis_string);
+uw_Basis_date uw_Basis_stringToDate_error(struct uw_context *, uw_Basis_string);
 uw_Basis_string uw_Basis_sqlifyTimestamptz(struct uw_context *, uw_Basis_timestamptz);
 uw_Basis_string uw_Basis_sqlifyTimestamptzN(struct uw_context *, uw_Basis_timestamptz*);
 char *uw_Basis_ensqlTimestamptz(struct uw_context *, uw_Basis_timestamptz);
@@ -333,6 +338,7 @@ extern char *uw_sqlsuffixChar;
 extern char *uw_sqlsuffixBlob;
 extern char *uw_sqlsuffixUuid;
 extern char *uw_sqlsuffixNumeric;
+extern char *uw_sqlsuffixDate;
 extern char *uw_sqlfmtUint4;
 
 void *uw_get_global(struct uw_context *, char *name);

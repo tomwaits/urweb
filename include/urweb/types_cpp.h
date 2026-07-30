@@ -43,6 +43,11 @@ typedef uw_Basis_time uw_Basis_timestamptz;
  * lost to floating point. */
 typedef uw_Basis_string uw_Basis_numeric;
 
+/* A calendar date, held as its canonical "YYYY-MM-DD" string (a validated proper
+ * Gregorian date -- see uw_date_valid).  Stored in the backend's native date
+ * column (Postgres/MySQL `date`; SQLite text). */
+typedef uw_Basis_string uw_Basis_date;
+
 typedef unsigned uw_Basis_client;
 typedef struct {
   unsigned cli, chn;
