@@ -205,21 +205,25 @@ QUERY_FIXTURES = qguard agg
 test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe tests/jsesc.exe tests/postcommit.exe
 	@echo ""
 	@echo "=== make test: fixtures built; running checks (each announced below; the slow part was the full demo compile above) ==="
-	@echo "==> [tc 1/6] sigfk        (signature-level FK disjointness, #267)"
+	@echo "==> [tc 1/8] sigfk        (signature-level FK disjointness, #267)"
 	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
-	@echo "==> [tc 2/6] blockquote   (the blockquote HTML tag, #259)"
+	@echo "==> [tc 2/8] blockquote   (the blockquote HTML tag, #259)"
 	bin/urweb -tc -boot -noEmacs tests/blockquote || (echo "Test 'blockquote' failed: the blockquote tag did not typecheck (urweb/urweb#259)"; false)
-	@echo "==> [tc 3/6] inputattrs   (input validation attributes, #275)"
+	@echo "==> [tc 3/8] inputattrs   (input validation attributes, #275)"
 	bin/urweb -tc -boot -noEmacs tests/inputattrs || (echo "Test 'inputattrs' failed: input validation attributes (Pattern/Minlength/Maxlength/Autocomplete/Readonly/Disabled) did not typecheck (urweb/urweb#275)"; false)
-	@echo "==> [tc 4/6] arrowguard   (-> accepted in guarded types, #197)"
+	@echo "==> [tc 4/8] arrowguard   (-> accepted in guarded types, #197)"
 	bin/urweb -tc -boot -noEmacs tests/arrowguard || (echo "Test 'arrowguard' failed: a guarded type written with -> instead of => did not typecheck (urweb/urweb#197)"; false)
-	@echo "==> [tc 5/6] deepunif     (#266 workarounds keep typechecking)"
+	@echo "==> [tc 5/8] deepunif     (#266 workarounds keep typechecking)"
 	bin/urweb -tc -boot -noEmacs tests/deepunif || (echo "Test 'deepunif' failed: a documented #266 workaround (implicit recursive call / monomorphic inner helper) no longer typechecks (urweb/urweb#266)"; false)
 	@# The verbatim #266 shape must KEEP failing with the too-deep error: if this
 	@# starts passing, the elaborator's depth guard changed (e.g. PR#226) -- that
 	@# must be a conscious, reviewed decision, not silent drift.
-	@echo "==> [tc 6/6] deepunif_red (#266 limitation still pinned red)"
+	@echo "==> [tc 6/8] deepunif_red (#266 limitation still pinned red)"
 	(bin/urweb -tc -boot -noEmacs tests/deepunif_red 2>&1 | grep -q 'too-deep unification variable') || (echo "Test 'deepunif_red' failed: the verbatim urweb/urweb#266 shape no longer fails with the too-deep-unification-variable error -- the elaborator depth guard changed; review deliberately (fork issue #20)"; false)
+	@echo "==> [tc 7/8] obgroup      (#269: grouped-column + SUM(col) aggregate ORDER BY typecheck)"
+	bin/urweb -tc -boot -noEmacs tests/obgroup || (echo "Test 'obgroup' failed: a VALID ORDER BY (grouped column / SUM-over-column aggregate -- the form the pre-#269 compiler rejected / ungrouped query) no longer typechecks (urweb/urweb#269)"; false)
+	@echo "==> [tc 8/8] obgroup_red  (#269: ungrouped ORDER BY column rejected)"
+	(bin/urweb -tc -boot -noEmacs tests/obgroup_red 2>&1 | grep -q '#OrderBy') || (echo "Test 'obgroup_red' failed: ORDER BY on a NON-grouped bare column did not fail with the #OrderBy grouped-set constraint -- either the #269 fix regressed (Postgres rejects this SQL at runtime) or the fixture broke for an unrelated reason"; false)
 	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
 	@# Set-Cookie response header.
 	@echo "==> [http 1/8] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"

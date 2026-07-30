@@ -289,7 +289,7 @@ fun monoType env =
                     (L'.TFfi ("Basis", "string"), loc)
                   | L.CApp ((L.CApp ((L.CApp ((L.CApp ((L.CFfi ("Basis", "sql_query"), _), _), _), _), _), _), _), _) =>
                     (L'.TFfi ("Basis", "string"), loc)
-                  | L.CApp ((L.CApp ((L.CApp ((L.CApp ((L.CApp ((L.CFfi ("Basis", "sql_query1"), _), _), _), _), _), _), _), _), _), _) =>
+                  | L.CApp ((L.CApp ((L.CApp ((L.CApp ((L.CApp ((L.CApp ((L.CFfi ("Basis", "sql_query1"), _), _), _), _), _), _), _), _), _), _), _), _) =>
                     (L'.TFfi ("Basis", "string"), loc)
                   | L.CApp ((L.CApp ((L.CFfi ("Basis", "sql_from_items"), _), _), _), _) =>
                     (L'.TFfi ("Basis", "string"), loc)
@@ -326,7 +326,7 @@ fun monoType env =
                     (L'.TFfi ("Basis", "string"), loc)
                   | L.CFfi ("Basis", "sql_direction") =>
                     (L'.TFfi ("Basis", "string"), loc)
-                  | L.CApp ((L.CApp ((L.CFfi ("Basis", "sql_order_by"), _), _), _), _) =>
+                  | L.CApp ((L.CApp ((L.CApp ((L.CFfi ("Basis", "sql_order_by"), _), _), _), _), _), _) =>
                     (L'.TFfi ("Basis", "string"), loc)
                   | L.CFfi ("Basis", "sql_limit") =>
                     (L'.TFfi ("Basis", "string"), loc)
@@ -1765,7 +1765,7 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                  end
                | _ => poly ())
 
-          | L.ECApp ((L.ECApp ((L.ECApp ((L.ECApp ((L.ECApp ((L.EFfi ("Basis", "sql_query"), _), _), _), _), _), _), _), _), _), _) =>
+          | L.ECApp ((L.ECApp ((L.ECApp ((L.ECApp ((L.ECApp ((L.ECApp ((L.EFfi ("Basis", "sql_query"), _), _), _), _), _), _), _), _), _), _), _), _) =>
             let
                 val s = (L'.TFfi ("Basis", "string"), loc)
                 fun gf s = (L'.EField ((L'.ERel 0, loc), s), loc)
@@ -2249,15 +2249,17 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                  fm)
             end
 
-          | L.ECApp ((L.ECApp ((L.EFfi ("Basis", "sql_order_by_Nil"), _), _), _), _) =>
+          | L.ECApp ((L.ECApp ((L.ECApp ((L.EFfi ("Basis", "sql_order_by_Nil"), _), _), _), _), _), _) =>
             (str "", fm)
-          | L.ECApp ((L.ECApp ((L.EFfi ("Basis", "sql_order_by_random"), _), _), _), _) =>
+          | L.ECApp ((L.ECApp ((L.ECApp ((L.EFfi ("Basis", "sql_order_by_random"), _), _), _), _), _), _) =>
             (str (#randomFunction (Settings.currentDbms ()) ^ "()"), fm)
           | L.ECApp (
             (L.ECApp (
              (L.ECApp (
               (L.ECApp (
-               (L.EFfi ("Basis", "sql_order_by_Cons"), _),
+               (L.ECApp (
+                (L.EFfi ("Basis", "sql_order_by_Cons"), _),
+                _), _),
                _), _),
               _), _),
              _), _),
@@ -2473,7 +2475,11 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
               (L.ECApp (
                (L.ECApp (
                 (L.ECApp (
-                 (L.EFfi ("Basis", "sql_relop"), _),
+                 (L.ECApp (
+                   (L.ECApp (
+                    (L.EFfi ("Basis", "sql_relop"), _),
+                    _), _),
+                   _), _),
                  _), _),
                 _), _),
                _), _),
@@ -2533,7 +2539,9 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
              (L.ECApp (
               (L.ECApp (
                (L.ECApp (
-                (L.EFfi ("Basis", "sql_forget_tables"), _),
+                (L.ECApp (
+                  (L.EFfi ("Basis", "sql_forget_tables"), _),
+                  _), _),
                 _), _),
                _), _),
               _), _),
