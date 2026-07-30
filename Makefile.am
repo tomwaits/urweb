@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe $(TESTDLOG) $(TESTDOUT) tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
+	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe $(TESTDLOG) $(TESTDOUT) tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -181,12 +181,16 @@ tests/daemon.exe: bin/urweb | demo/demo.exe
 	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
 	bin/urweb -boot -noEmacs -ccopt -O1 tests/daemon
 
+tests/svgtag.exe: bin/urweb | demo/demo.exe
+	cd src/c && $(MAKE) $(AM_MAKEFLAGS)
+	bin/urweb -boot -noEmacs -ccopt -O1 tests/svgtag
+
 # Wire the custom test target into automake's standard `make check`.
 check-local: test
 
 QUERY_FIXTURES = qguard agg
 
-test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe
+test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe
 	@echo ""
 	@echo "=== make test: fixtures built; running checks (each announced below; the slow part was the full demo compile above) ==="
 	@echo "==> [tc 1/6] sigfk        (signature-level FK disjointness, #267)"
@@ -199,7 +203,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	bin/urweb -tc -boot -noEmacs tests/arrowguard || (echo "Test 'arrowguard' failed: a guarded type written with -> instead of => did not typecheck (urweb/urweb#197)"; false)
 	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
 	@# Set-Cookie response header.
-	@echo "==> [http 1/5] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
+	@echo "==> [http 1/6] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :8083"
 	tests/cookiehttponly.exe -q -a 127.0.0.1 -p 8083 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8083/Cookiehttponly/main' | grep -i '^set-cookie:' | grep -qi 'httponly') || (kill `cat $(TESTPID)`; echo "Test 'cookiehttponly' failed: Set-Cookie header missing 'httponly' (PR#279)"; false)
@@ -211,7 +215,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# RUNTIME-built JSON string on purpose (a compile-time literal would hit a
 	@# separate constant-folding bug for astral chars); its strlen/strlenUtf8
 	@# self-check emits SURROGATE_PAIR_OK, and we also byte-check for F0 9F 98 80.
-	@echo "==> [http 2/5] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :8084"
+	@echo "==> [http 2/6] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :8084"
 	tests/jsonsurrogate.exe -q -a 127.0.0.1 -p 8084 & echo $$! > $(TESTPID)
 	sleep 2
 	(curl -s 'http://localhost:8084/Jsonsurrogate/main' | grep -q 'SURROGATE_PAIR_OK') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: surrogate pair did not decode to one U+1F600 scalar value (strlen/strlenUtf8 self-check) -- urweb/urweb#211"; false)
@@ -222,7 +226,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# = 1), so curl -si shows it verbatim. Two handlers set two different codes
 	@# (404, 429) so the check proves the emitted status tracks the argument, not
 	@# a hardcoded value. -i so the status line is in curl's output.
-	@echo "==> [http 3/5] respstatus (setResponseStatus 404/429, #222) — serving on :8085"
+	@echo "==> [http 3/6] respstatus (setResponseStatus 404/429, #222) — serving on :8085"
 	tests/respstatus.exe -q -a 127.0.0.1 -p 8085 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8085/Respstatus/notFound' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 404 did not set the status line to 404 (urweb/urweb#222)"; false)
@@ -235,7 +239,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# also preserves '#' (colors/anchors) that the .urp comment stripper would
 	@# truncate -- asserted via the '#top' anchor. /Notfound/main exists;
 	@# /Notfound/nope does not.
-	@echo "==> [http 4/5] notfound (custom 404 notFoundPage, #39) — serving on :8086"
+	@echo "==> [http 4/6] notfound (custom 404 notFoundPage, #39) — serving on :8086"
 	tests/notfound.exe -q -a 127.0.0.1 -p 8086 & echo $$! > $(TESTPID)
 	sleep 1
 	(curl -si 'http://localhost:8086/Notfound/nope' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: an unmatched URL did not return a 404 status line (urweb/urweb#39)"; false)
@@ -252,7 +256,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# child (it must still serve), confirm the log file was written and that the
 	@# app's background `task periodic` still fires in the child, and stop it via
 	@# the reported pid.
-	@echo "==> [http 5/5] daemon (-d detaches, logs, serves + keeps its 'task periodic', in background) — serving on :8087"
+	@echo "==> [http 5/6] daemon (-d detaches, logs, serves + keeps its 'task periodic', in background) — serving on :8087"
 	@rm -f $(TESTDLOG) $(TESTDOUT)
 	tests/daemon.exe -a 127.0.0.1 -p 8087 -d $(TESTDLOG) > $(TESTDOUT) || (echo "Test 'daemon' failed: the server exited nonzero under -d instead of daemonizing"; false)
 	@sed -n 's/.*Daemonized: pid \([0-9][0-9]*\).*/\1/p' $(TESTDOUT) > $(TESTPID)
@@ -265,6 +269,19 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# the daemon child, i.e. only if the fork happens before uw_request_init runs.
 	@# This is the regression guard for the fork-must-precede-all-app-threads rule.
 	(grep -q 'PERIODIC_FIRED' $(TESTDLOG)) || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: the app's 'task periodic' did not run in the daemon child -- fork() stranded the periodic thread (uw_request_init must run AFTER the fork)"; false)
+	kill `cat $(TESTPID)`
+	@# urweb/urweb#259 (svg/path half): inline SVG must render with the CORRECT
+	@# SVG attribute spellings -- interior capitals kept (ViewBox -> viewBox) and
+	@# '_' rendered as '-' (Fill_rule -> fill-rule). Greps the served HTML for the
+	@# exact names, so a regression in attribute-name rendering fails, not just a
+	@# missing declaration.
+	@echo "==> [http 6/6] svgtag (inline svg/path render with viewBox + fill-rule, #259) — serving on :8088"
+	tests/svgtag.exe -q -a 127.0.0.1 -p 8088 & echo $$! > $(TESTPID)
+	sleep 1
+	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'viewBox="0 0 24 24"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: viewBox attribute not rendered with its interior capital (urweb/urweb#259)"; false)
+	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'fill-rule="evenodd"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: Fill_rule did not render as fill-rule (urweb/urweb#259)"; false)
+	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'stroke-width="2"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: Stroke_width did not render as stroke-width (urweb/urweb#259)"; false)
+	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'xmlns="http://www.w3.org/2000/svg"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: xmlns attribute missing from the svg tag (urweb/urweb#259)"; false)
 	kill `cat $(TESTPID)`
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered

@@ -973,6 +973,15 @@ val div : bodyTag boxAttrs
 
 val p : bodyTag boxAttrs
 val blockquote : bodyTag boxAttrs
+(* Minimal inline-SVG support (urweb/urweb#259): the attribute renderer already
+ * produces the SVG names verbatim -- record field names keep interior capitals
+ * (ViewBox -> viewBox) and '_' renders as '-' (Fill_rule -> fill-rule) -- so
+ * these are ordinary tag declarations. The attribute sets are the issue's
+ * deliberately minimal ones; extend as real needs appear. *)
+val svg : bodyTag ([Width = string, Height = string, ViewBox = string,
+                    Fill = string, Xmlns = string] ++ boxAttrs)
+val path : bodyTag ([Fill_rule = string, D = string, Fill = string,
+                     Stroke = string, Stroke_width = string] ++ boxAttrs)
 val strong : bodyTag boxAttrs
 val em : bodyTag boxAttrs
 val b : bodyTag boxAttrs
