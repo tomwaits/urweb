@@ -10,6 +10,22 @@ type uuid
  * plain [time] (SQL "timestamp without time zone") suffers.  Convert to/from
  * [time] with [timestamptzToTime]/[timeToTimestamptz]. *)
 type timestamptz
+(* An exact decimal number with up to 35 integer and 30 fractional significant
+ * digits -- the range that both Postgres numeric(65,30) and MySQL decimal(65,30)
+ * hold IDENTICALLY and exactly.  Held as a canonical decimal string; construct
+ * with stringToNumeric (which returns None for anything outside that range, so
+ * over-precision fails loudly and uniformly rather than being silently rounded
+ * on one backend and kept on another).  Stored in a real numeric column, so
+ * unlike `float` it never loses precision to binary floating point.
+ *
+ * Caveats: numeric represents FINITE decimals only -- the special Postgres
+ * numeric tokens 'NaN'/'Infinity' are not valid values and reading one (e.g.
+ * written by another process) raises a fatal error rather than silently
+ * mis-reading it.  The startup schema check verifies the base column type but
+ * NOT its declared precision/scale, so a pre-existing column with a smaller
+ * scale would round writes; create numeric columns via Ur/Web, or match
+ * (65,30). *)
+type numeric
 
 type unit = {}
 
@@ -292,6 +308,7 @@ val sql_time : sql_injectable_prim time
 val sql_blob : sql_injectable_prim blob
 val sql_uuid : sql_injectable_prim uuid
 val sql_timestamptz : sql_injectable_prim timestamptz
+val sql_numeric : sql_injectable_prim numeric
 val sql_channel : t ::: Type -> sql_injectable_prim (channel t)
 val sql_client : sql_injectable_prim client
 
@@ -1076,6 +1093,13 @@ val stringToUuid : string -> option uuid
  * client/URL boundary (no urlify/unurlify), so it may not appear directly in
  * page-handler inputs, links, or forms. Round-trip through [string] with
  * [uuidToString] / [stringToUuid] at those boundaries. *)
+
+val numericToString : numeric -> string
+val stringToNumeric : string -> option numeric
+(* [stringToNumeric] returns [Some] for a decimal string ("-12.5", "0.001",
+ * "42"), normalized to canonical form (redundant zeros dropped); [None]
+ * otherwise.  Like [uuid], [numeric] is a server-side SQL type and does not
+ * currently cross the client/URL boundary. *)
 
 val timestamptzToTime : timestamptz -> time
 val timeToTimestamptz : time -> timestamptz

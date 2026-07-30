@@ -237,6 +237,30 @@ jobs:
             || { echo "timestamptz FAILED: instant not preserved (orig=$o read=$r opt=$p) -- skew under a non-UTC DB session"; exit 1; }
           echo "pg timestamptz-skew-free: PASS (orig=read=opt=$o under America/New_York)"
 
+      - name: Compile + run tests/numtest against live Postgres (native numeric column)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          result/bin/urweb -dbms postgres -db "$DB" -sql tests/numtest.sql tests/numtest
+          echo "=== emitted schema ==="; cat tests/numtest.sql
+          # The N column must be a NATIVE Postgres numeric type (exact decimal).
+          grep -Eiq 'uw_n[[:space:]]+numeric' tests/numtest.sql \
+            || { echo "numeric FAILED: N column is not a native Postgres numeric"; exit 1; }
+          psql "$DB" -v ON_ERROR_STOP=1 -f tests/numtest.sql
+          tests/numtest.exe -q -a 127.0.0.1 -p 8098 & echo $! > /tmp/num.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8098/Numtest/main' || true)
+          kill "$(cat /tmp/num.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # "-12.50"/"0.00100" must normalize to "-12.5"/"0.001" and round-trip
+          # exactly through the NOT NULL + nullable columns, queried by numeric
+          # equality (the WHERE-parameter path).
+          echo "$out" | grep -q 'NUM_ROUNDTRIP:-12.5,opt=0.001;hp=123.123456789012345678901234567891;over=rej' \
+            || { echo "numeric FAILED: exact-decimal round trip / normalization broke on Postgres"; exit 1; }
+          echo "pg numeric-integration: PASS"
+
       - name: Startup warns on database/server time-zone skew (#163)
         env:
           PGPASSWORD: postgres
@@ -439,6 +463,28 @@ jobs:
           test -n "$o" -a "$o" = "$r" -a "$o" = "$p" \
             || { echo "timestamptz FAILED: instant not preserved (orig=$o read=$r opt=$p) under a non-UTC session"; exit 1; }
           echo "mysql timestamptz-skew-free: PASS (orig=read=opt=$o under time_zone +05:00)"
+
+      - name: Compile + run tests/numtest against live MySQL (native decimal column)
+        run: |
+          set -euo pipefail
+          DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
+          urweb -dbms mysql -db "$DB" -sql tests/numtest.sql tests/numtest
+          echo "=== emitted schema ==="; cat tests/numtest.sql
+          # The N column must be a MySQL decimal (exact, not float).
+          grep -Eiq 'uw_n[[:space:]]+decimal' tests/numtest.sql \
+            || { echo "numeric FAILED: N column is not a MySQL decimal"; exit 1; }
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/numtest.sql
+          tests/numtest.exe -q -a 127.0.0.1 -p 8099 >/tmp/nummy.log 2>&1 & echo $! > /tmp/num.pid
+          sleep 3
+          out=$(curl -s 'http://localhost:8099/Numtest/main' || true)
+          kill "$(cat /tmp/num.pid)" 2>/dev/null || true
+          echo "=== server log ==="; cat /tmp/nummy.log 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # decimal(65,30) pads to 30 fractional digits; the read must normalize
+          # "-12.500...0" back to "-12.5" (cross-backend parity).
+          echo "$out" | grep -q 'NUM_ROUNDTRIP:-12.5,opt=0.001;hp=123.123456789012345678901234567891;over=rej' \
+            || { echo "numeric FAILED: exact-decimal round trip / normalization broke on MySQL"; exit 1; }
+          echo "mysql numeric-integration: PASS"
 
       - name: Negative — the startup schema check REJECTS schema drift (#230)
         run: |

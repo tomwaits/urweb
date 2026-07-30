@@ -69,6 +69,7 @@ fun isUnboxable (t : typ) =
         TDatatype (Default, _, _) => true
       | TFfi ("Basis", "string") => true
       | TFfi ("Basis", "uuid") => true
+      | TFfi ("Basis", "numeric") => true
       | TFfi ("Basis", "queryString") => true
       | _ => false
 
@@ -414,6 +415,7 @@ fun p_unsql wontLeakStrings env (tAll as (t, loc)) e eLen =
       | TFfi ("Basis", "bool") => box [string "uw_Basis_stringToBool_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "time") => box [string "uw_Basis_stringToTime_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "timestamptz") => box [string "uw_Basis_stringToTimestamptz_error(ctx, ", e, string ")"]
+      | TFfi ("Basis", "numeric") => box [string "uw_Basis_stringToNumeric_error(ctx, ", e, string ")"]
       | TFfi ("Basis", "blob") => box [string "uw_Basis_stringToBlob_error(ctx, ",
                                        e,
                                        string ", ",
@@ -432,23 +434,27 @@ fun p_getcol wontLeakStrings env (tAll as (t, loc)) i =
         box [string "(PQgetisnull(res, i, ",
              string (Int.toString i),
              string ") ? NULL : ",
-             case t of
-                 (TFfi ("Basis", "string"), _) => p_getcol wontLeakStrings env t i
-               | _ => box [string "({",
-                           newline,
-                           p_typ env t,
-                           space,
-                           string "*tmp = uw_malloc(ctx, sizeof(",
-                           p_typ env t,
-                           string "));",
-                           newline,
-                           string "*tmp = ",
-                           p_getcol wontLeakStrings env t i,
-                           string ";",
-                           newline,
-                           string "tmp;",
-                           newline,
-                           string "})"],
+             (* Unboxable option elements (string, uuid, numeric, ...) are
+                represented as the value itself with NULL == None; only boxed
+                types need a heap pointer. *)
+             if isUnboxable t then
+                 p_getcol wontLeakStrings env t i
+             else
+                 box [string "({",
+                      newline,
+                      p_typ env t,
+                      space,
+                      string "*tmp = uw_malloc(ctx, sizeof(",
+                      p_typ env t,
+                      string "));",
+                      newline,
+                      string "*tmp = ",
+                      p_getcol wontLeakStrings env t i,
+                      string ";",
+                      newline,
+                      string "tmp;",
+                      newline,
+                      string "})"],
              string ")"]
       | _ =>
         box [string "(PQgetisnull(res, i, ",
@@ -504,6 +510,7 @@ fun getPargs (e, _) =
       | EFfiApp ("Basis", "sqlifyBlob", [(e, _)]) => [(e, Blob)]
       | EFfiApp ("Basis", "sqlifyUuid", [(e, _)]) => [(e, Uuid)]
       | EFfiApp ("Basis", "sqlifyTimestamptz", [(e, _)]) => [(e, Timestamptz)]
+      | EFfiApp ("Basis", "sqlifyNumeric", [(e, _)]) => [(e, Numeric)]
       | EFfiApp ("Basis", "sqlifyChannel", [(e, _)]) => [(e, Channel)]
       | EFfiApp ("Basis", "sqlifyClient", [(e, _)]) => [(e, Client)]
 
@@ -1408,6 +1415,7 @@ fun sql_type_in env (tAll as (t, loc)) =
       | TFfi ("Basis", "blob") => Blob
       | TFfi ("Basis", "uuid") => Uuid
       | TFfi ("Basis", "timestamptz") => Timestamptz
+      | TFfi ("Basis", "numeric") => Numeric
       | TFfi ("Basis", "channel") => Channel
       | TFfi ("Basis", "client") => Client
       | TOption t' => Nullable (sql_type_in env t')

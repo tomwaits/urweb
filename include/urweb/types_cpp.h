@@ -36,6 +36,13 @@ typedef uw_Basis_string uw_Basis_uuid;
  * `time` serialization suffers. */
 typedef uw_Basis_time uw_Basis_timestamptz;
 
+/* An exact decimal number, held as its canonical text form (see uw_numeric_valid
+ * / uw_normalize_numeric): optional '-', digits with an optional single '.', no
+ * redundant leading/trailing zeros.  Stored in the backend's exact-decimal
+ * column (Postgres numeric / MySQL decimal / SQLite text) so precision is never
+ * lost to floating point. */
+typedef uw_Basis_string uw_Basis_numeric;
+
 typedef unsigned uw_Basis_client;
 typedef struct {
   unsigned cli, chn;
