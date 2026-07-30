@@ -273,19 +273,33 @@ val checkTimezone =
 
 (* Ur/Web's [ord_string] compares with strcmp -- pure byte order (the monoize
  * lowering of Basis.ord_string) -- while SQL ORDER BY / comparison on text
- * columns uses the DATABASE collation.  Under any collation other than C /
- * POSIX (e.g. en_US.UTF-8, a common initdb default) the two sort orders
- * diverge silently (urweb/urweb#120).  Warn at startup unless datcollate is
- * C, POSIX, or C.<charset> (glibc's C.UTF-8 is codepoint order, which equals
- * byte order for UTF-8).  The robust deployment fix is to create the database
- * with LC_COLLATE=C. *)
+ * columns uses the DATABASE default collation.  Under any collation other
+ * than C / POSIX (e.g. en_US.UTF-8, a common initdb default) the two sort
+ * orders diverge silently (urweb/urweb#120).  Since PG15 the default text
+ * collation is governed by datlocprovider: 'c' = libc (datcollate rules),
+ * 'i' = ICU (daticulocale/datlocale rules; datcollate is vestigial), 'b' =
+ * PG17's builtin provider (datlocale rules).  The to_json trick reads the
+ * provider/locale columns portably -- a missing column yields SQL NULL
+ * instead of an error on older servers, and COALESCE defaults the provider
+ * to 'c' there.  Silent iff the governing locale is bytewise: libc C /
+ * POSIX / C.<charset> (glibc's C.UTF-8 collates in codepoint order, which
+ * equals byte order for UTF-8), or builtin C / C.UTF-8.  ICU always warns
+ * (no bytewise ICU locale exists).  The robust deployment fix is to create
+ * the database with LC_COLLATE=C and the libc locale provider. *)
 val checkCollation =
     string ("{\n\
-            \  res = PQexec(conn, \"SELECT datcollate FROM pg_database WHERE datname = current_database()\");\n\
+            \  res = PQexec(conn, \"SELECT datcollate, COALESCE(to_json(d)->>'datlocprovider', 'c'), COALESCE(to_json(d)->>'datlocale', to_json(d)->>'daticulocale', '') FROM pg_database d WHERE datname = current_database()\");\n\
             \  if (res != NULL && PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) == 1) {\n\
             \    const char *uw_collate = PQgetvalue(res, 0, 0);\n\
-            \    if (strcmp(uw_collate, \"C\") && strcmp(uw_collate, \"POSIX\") && strncmp(uw_collate, \"C.\", 2))\n\
-            \      fprintf(stderr, \"Warning: the database collation is '%s', not C/POSIX. Ur/Web compares strings bytewise (strcmp), while SQL ORDER BY and text comparisons use the database collation, so the two sort orders will diverge. Create the database with LC_COLLATE=C (or POSIX).\\n\", uw_collate);\n\
+            \    const char *uw_provider = PQgetvalue(res, 0, 1);\n\
+            \    const char *uw_locale = PQgetvalue(res, 0, 2);\n\
+            \    int uw_coll_bytewise =\n\
+            \      (uw_provider[0] == 'c'\n\
+            \       && (!strcmp(uw_collate, \"C\") || !strcmp(uw_collate, \"POSIX\") || !strncmp(uw_collate, \"C.\", 2)))\n\
+            \      || (uw_provider[0] == 'b'\n\
+            \          && (!strcmp(uw_locale, \"C\") || !strcmp(uw_locale, \"POSIX\") || !strncmp(uw_locale, \"C.\", 2)));\n\
+            \    if (!uw_coll_bytewise)\n\
+            \      fprintf(stderr, \"Warning: the database default collation (provider '%s', collate '%s', locale '%s') is not bytewise C/POSIX. Ur/Web compares strings bytewise (strcmp), while SQL ORDER BY and text comparisons use the database collation, so the two sort orders will diverge. Create the database with LC_COLLATE=C (or POSIX) and the libc locale provider.\\n\", uw_provider, uw_collate, uw_locale);\n\
             \  }\n\
             \  if (res != NULL) PQclear(res);\n\
             \}\n")
