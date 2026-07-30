@@ -460,32 +460,6 @@ jobs:
             || { echo "TZ FAILED: binary did not warn about the database/server time-zone skew (urweb/urweb#163)"; exit 1; }
           echo "timezone-skew-warning: PASS"
 
-      - name: Startup warns on a non-C database collation (#120)
-        env:
-          PGPASSWORD: postgres
-        run: |
-          set -euo pipefail
-          ADMIN="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
-          # Ur/Web's ord_string is strcmp (byte order); SQL ORDER BY uses the
-          # database collation. The startup check must WARN for en_US.utf8 and
-          # stay SILENT for C (the silence half is the vacuity guard).
-          psql "$ADMIN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE coll_utf8 LC_COLLATE 'en_US.utf8' LC_CTYPE 'en_US.utf8' TEMPLATE template0;"
-          psql "$ADMIN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE coll_c LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
-          for db in coll_utf8 coll_c; do
-            DB="host=localhost port=5432 dbname=$db user=postgres password=postgres"
-            result/bin/urweb -dbms postgres -db "$DB" -sql tests/coll.sql tests/pgtest
-            psql "$DB" -v ON_ERROR_STOP=1 -f tests/coll.sql
-            tests/pgtest.exe -q -a 127.0.0.1 -p 8111 2>/tmp/coll.$db.stderr & pid=$!
-            sleep 3
-            kill "$pid" 2>/dev/null || true
-            echo "=== stderr against $db ==="; cat /tmp/coll.$db.stderr || true
-          done
-          grep -qi 'database collation' /tmp/coll.coll_utf8.stderr \
-            || { echo "COLLATION FAILED: no warning against an en_US.utf8 database (urweb/urweb#120)"; exit 1; }
-          ! grep -qi 'database collation' /tmp/coll.coll_c.stderr \
-            || { echo "COLLATION FAILED: warned against a C-collation database -- check is wrong or over-eager (urweb/urweb#120)"; exit 1; }
-          echo "collation-warning: PASS (warns on en_US.utf8, silent on C)"
-
       - name: Negative — the startup schema check REJECTS schema drift (#230)
         env:
           PGPASSWORD: postgres
@@ -509,6 +483,36 @@ jobs:
             echo "NEGATIVE FAILED: binary served despite an unexpected extra column -- the startup schema check (#230) did NOT catch schema drift"; exit 1
           fi
           echo "startup-check-rejects-drift: PASS (binary refused the drifted schema)"
+
+      - name: Startup warns on a non-C database collation (#120)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          # NB: keep this step LAST in the job -- it RECOMPILES tests/pgtest.exe
+          # against the coll_* databases, clobbering the artifact earlier steps
+          # (drift-negative, TZ) rely on being baked against urwebtest.
+          ADMIN="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          # Ur/Web's ord_string is strcmp (byte order); SQL ORDER BY uses the
+          # database collation. The startup check must WARN for en_US.utf8 and
+          # stay SILENT for C (the silence half is the vacuity guard).
+          psql "$ADMIN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE coll_utf8 LC_COLLATE 'en_US.utf8' LC_CTYPE 'en_US.utf8' TEMPLATE template0;"
+          psql "$ADMIN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE coll_c LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
+          for db in coll_utf8 coll_c; do
+            DB="host=localhost port=5432 dbname=$db user=postgres password=postgres"
+            result/bin/urweb -dbms postgres -db "$DB" -sql tests/coll.sql tests/pgtest
+            psql "$DB" -v ON_ERROR_STOP=1 -f tests/coll.sql
+            tests/pgtest.exe -q -a 127.0.0.1 -p 8111 2>/tmp/coll.$db.stderr & pid=$!
+            sleep 3
+            kill "$pid" 2>/dev/null || true
+            echo "=== stderr against $db ==="; cat /tmp/coll.$db.stderr || true
+          done
+          grep -qi 'database collation' /tmp/coll.coll_utf8.stderr \
+            || { echo "COLLATION FAILED: no warning against an en_US.utf8 database (urweb/urweb#120)"; exit 1; }
+          ! grep -qi 'database collation' /tmp/coll.coll_c.stderr \
+            || { echo "COLLATION FAILED: warned against a C-collation database -- check is wrong or over-eager (urweb/urweb#120)"; exit 1; }
+          echo "collation-warning: PASS (warns on en_US.utf8, silent on C)"
+
 
   # MySQL RUNTIME integration. Before this job the MySQL backend had NO runtime
   # coverage: nix-build tests only sqlite, postgres-integration only postgres.
