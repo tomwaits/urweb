@@ -54,6 +54,11 @@ fun p_sql_type t =
          bind/read it as a canonical "YYYY-MM-DD" string (MYSQL_TYPE_STRING),
          exactly like uuid. *)
       | Date => "date"
+      (* Postgres `time` is a time-of-day and MySQL `TIME` is a wider duration
+         type, but a validated 00:00:00..23:59:59 value is a proper time-of-day on
+         both.  data_type is the bare "time" (see p_sql_type_base); bound/read as a
+         canonical "HH:MM:SS" string (MYSQL_TYPE_STRING), like uuid/date. *)
+      | TimeOfDay => "time"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type t
@@ -76,6 +81,7 @@ fun p_buffer_type t =
       | Timestamptz => "MYSQL_TYPE_TIMESTAMP"
       | Numeric => "MYSQL_TYPE_STRING"
       | Date => "MYSQL_TYPE_STRING"
+      | TimeOfDay => "MYSQL_TYPE_STRING"
       | Channel => "MYSQL_TYPE_LONGLONG"
       | Client => "MYSQL_TYPE_LONG"
       | Nullable t => p_buffer_type t
@@ -100,6 +106,7 @@ fun p_sql_type_base t =
       | Timestamptz => "datetime"
       | Numeric => "decimal"
       | Date => "date"
+      | TimeOfDay => "time"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type_base t
@@ -705,6 +712,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
               | Uuid => getter String
               | Numeric => box [string "uw_Basis_stringToNumeric_error(ctx, ", getter String, string ")"]
               | Date => box [string "uw_Basis_stringToDate_error(ctx, ", getter String, string ")"]
+              | TimeOfDay => box [string "uw_Basis_stringToTimeOfDay_error(ctx, ", getter String, string ")"]
               | Blob => box [string "({",
                              newline,
                              string "uw_Basis_blob b = {length",
@@ -782,6 +790,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                  | Uuid => getter t
                                  | Numeric => getter t
                                  | Date => getter t
+                                 | TimeOfDay => getter t
                                  | _ => box [string "({",
                                              newline,
                                              string (p_sql_ctype t),
@@ -836,6 +845,7 @@ fun queryCommon {loc, query, cols, doCols} =
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
                                                     | Date => buffers String
+                                                    | TimeOfDay => buffers String
                                                     | Blob => box [string "unsigned long length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -885,6 +895,7 @@ fun queryCommon {loc, query, cols, doCols} =
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
                                                     | Date => buffers String
+                                                    | TimeOfDay => buffers String
                                                     | Char => box [string "out[",
                                                                    string (Int.toString i),
                                                                    string "].buffer_length = 1;",
@@ -1044,6 +1055,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
                                                     | Date => buffers String
+                                                    | TimeOfDay => buffers String
                                                     | Blob => box [string "unsigned long in_length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -1157,6 +1169,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
                                                     | Date => buffers String
+                                                    | TimeOfDay => buffers String
                                                     | Char => box [string "in[",
                                                                    string (Int.toString i),
                                                                    string "].buffer = &arg",
@@ -1327,6 +1340,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                                  | Uuid => box []
                                                                                  | Numeric => box []
                                                                                  | Date => box []
+                                                                                 | TimeOfDay => box []
                                                                                  | _ =>
                                                                                    box [string (p_sql_ctype t),
                                                                                         space,
@@ -1429,6 +1443,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
                                                     | Date => buffers String
+                                                    | TimeOfDay => buffers String
                                                     | Blob => box [string "unsigned long in_length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -1523,6 +1538,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                     | Uuid => buffers String
                                                     | Numeric => buffers String
                                                     | Date => buffers String
+                                                    | TimeOfDay => buffers String
                                                     | Blob => box [string "in[",
                                                                    string (Int.toString i),
                                                                    string "].buffer = arg",
@@ -1683,6 +1699,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                                  | Uuid => box []
                                                                                  | Numeric => box []
                                                                                  | Date => box []
+                                                                                 | TimeOfDay => box []
                                                                                  | _ =>
                                                                                    box [string (p_sql_ctype t),
                                                                                         space,

@@ -50,6 +50,7 @@ fun p_sql_type t =
          startup check (see p_sql_type_base). *)
       | Numeric => "numeric(65,30)"
       | Date => "date"
+      | TimeOfDay => "time"
       | Channel => "int8"
       | Client => "int4"
       | Nullable t => p_sql_type t
@@ -67,6 +68,7 @@ fun p_sql_type_base t =
       | Timestamptz => "timestamp with time zone"
       | Numeric => "numeric"
       | Date => "date"
+      | TimeOfDay => "time without time zone"
       | Channel => "bigint"
       | Client => "integer"
       | Nullable t => p_sql_type_base t
@@ -410,6 +412,8 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
               newline,
               string "uw_sqlsuffixDate = \"::date\";",
               newline,
+              string "uw_sqlsuffixTimeOfDay = \"::time\";",
+              newline,
               string "uw_sqlfmtUint4 = \"%u::int4%n\";",
               newline],
          string "}",
@@ -594,6 +598,7 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
               | Timestamptz => box [string "uw_Basis_stringToTimestamptz_error(ctx, ", e, string ")"]
               | Numeric => box [string "uw_Basis_stringToNumeric_error(ctx, ", e, string ")"]
               | Date => box [string "uw_Basis_stringToDate_error(ctx, ", e, string ")"]
+              | TimeOfDay => box [string "uw_Basis_stringToTimeOfDay_error(ctx, ", e, string ")"]
               | Blob => box [string "uw_Basis_stringToBlob_error(ctx, ",
                              e,
                              string ", ",
@@ -620,6 +625,7 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
                        | Uuid => getter t
                        | Numeric => getter t
                        | Date => getter t
+                       | TimeOfDay => getter t
                        | _ => box [string "({",
                                    newline,
                                    string (p_sql_ctype t),
@@ -770,6 +776,7 @@ fun p_ensql t e =
       | Uuid => e
       | Numeric => e
       | Date => e
+      | TimeOfDay => e
       | Char => box [string "uw_Basis_attrifyChar(ctx, ", e, string ")"]
       | Bool => box [string "(", e, string " ? \"TRUE\" : \"FALSE\")"]
       | Time => box [string "uw_Basis_ensqlTime(ctx, ", e, string ")"]
@@ -781,6 +788,7 @@ fun p_ensql t e =
       | Nullable Uuid => e
       | Nullable Numeric => e
       | Nullable Date => e
+      | Nullable TimeOfDay => e
       | Nullable t => box [string "(",
                            e,
                            string " == NULL ? NULL : ",

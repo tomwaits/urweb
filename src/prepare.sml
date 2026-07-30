@@ -81,6 +81,7 @@ fun prepString (e, st) =
                   | EFfiApp ("Basis", "sqlifyTimestamptz", [_]) => doOne Timestamptz
                   | EFfiApp ("Basis", "sqlifyNumeric", [_]) => doOne Numeric
                   | EFfiApp ("Basis", "sqlifyDate", [_]) => doOne Date
+                  | EFfiApp ("Basis", "sqlifyTimeOfDay", [_]) => doOne TimeOfDay
                   | EFfiApp ("Basis", "sqlifyChannel", [_]) => doOne Channel
                   | EFfiApp ("Basis", "sqlifyClient", [_]) => doOne Client
 

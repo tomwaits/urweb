@@ -1990,6 +1990,10 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
             ((L'.EAbs ("x", (L'.TFfi ("Basis", "date"), loc), (L'.TFfi ("Basis", "string"), loc),
                        (L'.EFfiApp ("Basis", "sqlifyDate", [((L'.ERel 0, loc), (L'.TFfi ("Basis", "date"), loc))]), loc)), loc),
              fm)
+          | L.EFfi ("Basis", "sql_timeOfDay") =>
+            ((L'.EAbs ("x", (L'.TFfi ("Basis", "timeOfDay"), loc), (L'.TFfi ("Basis", "string"), loc),
+                       (L'.EFfiApp ("Basis", "sqlifyTimeOfDay", [((L'.ERel 0, loc), (L'.TFfi ("Basis", "timeOfDay"), loc))]), loc)), loc),
+             fm)
           | L.ECApp ((L.EFfi ("Basis", "sql_channel"), _), _) =>
             ((L'.EAbs ("x", (L'.TFfi ("Basis", "channel"), loc), (L'.TFfi ("Basis", "string"), loc),
                        (L'.EFfiApp ("Basis", "sqlifyChannel", [((L'.ERel 0, loc), (L'.TFfi ("Basis", "channel"), loc))]), loc)), loc),
@@ -2032,6 +2036,7 @@ fun monoExp (env, st, fm) (all as (e, loc)) =
                       | L'.TFfi ("Basis", "timestamptz") => Settings.Timestamptz
                       | L'.TFfi ("Basis", "numeric") => Settings.Numeric
                       | L'.TFfi ("Basis", "date") => Settings.Date
+                      | L'.TFfi ("Basis", "timeOfDay") => Settings.TimeOfDay
                       | L'.TFfi ("Basis", "channel") => Settings.Channel
                       | L'.TFfi ("Basis", "client") => Settings.Client
                       | _ => raise Fail "Monoize/sql_option_prim: invalid SQL type"
