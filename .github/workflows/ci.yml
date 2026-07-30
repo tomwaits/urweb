@@ -97,6 +97,26 @@ jobs:
           fi
           echo "ccopt: PASS (-O0 builds; -Obogus rejected by gcc, so the flags reach the C compiler)"
 
+      - name: numeric arithmetic on SQLite is float-approximate (documented, pinned)
+        run: |
+          set -euo pipefail
+          # SQLite coerces its TEXT numeric to a binary double for arithmetic, so
+          # an in-range value past ~15 significant digits is NOT exact (see the
+          # sql_arith_numeric note in basis.urs). This pins the observed inexact
+          # result so the documented contract cannot silently drift.
+          result/bin/urweb -dbms sqlite -db /tmp/sq.db -sql /tmp/sq.sql tests/numsq
+          python3 -c "import sqlite3; c=sqlite3.connect('/tmp/sq.db'); c.executescript(open('/tmp/sq.sql').read()); c.close()"
+          tests/numsq.exe -q -a 127.0.0.1 -p 8104 & echo $! > /tmp/sq.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8104/Numsq/main' || true)
+          kill "$(cat /tmp/sq.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # 1.2345678901234567890123456789 + 1 is exact on Postgres/MySQL but
+          # rounds to a double here.
+          echo "$out" | grep -q 'SQ:2.23456789012346' \
+            || { echo "SQLite numeric arithmetic no longer matches the documented float-approximate contract: $out"; exit 1; }
+          echo "sqlite numeric-arithmetic-is-float: PASS (documented inexactness, pinned)"
+
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
   # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
   # the startup schema-structure check (#230), timestamp handling (#163), the
@@ -279,6 +299,26 @@ jobs:
           echo "$out" | grep -q 'NUM_ARITH:sum=13.75,diff=7.25,prod=34.125' \
             || { echo "arith FAILED: SQL-side numeric arithmetic wrong on Postgres"; exit 1; }
           echo "pg numeric-arithmetic: PASS"
+
+      - name: Compile + run tests/numovf — Postgres REJECTS an over-scale numeric result (loud)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          result/bin/urweb -dbms postgres -db "$DB" -sql tests/numovf.sql tests/numovf
+          psql "$DB" -v ON_ERROR_STOP=1 -f tests/numovf.sql
+          tests/numovf.exe -q -a 127.0.0.1 -p 8102 & echo $! > /tmp/ov.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8102/Numovf/main' || true)
+          kill "$(cat /tmp/ov.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # A product whose scale exceeds numeric's 30 fractional digits: Postgres
+          # computes full scale, so the read REJECTS it loudly (documented contract)
+          # -- it must NOT silently return a rounded value like MySQL does.
+          echo "$out" | grep -q "Can't parse numeric" \
+            || { echo "arith-overflow FAILED: Postgres did not loudly reject an over-scale numeric result"; exit 1; }
+          echo "pg numeric-overflow-is-loud: PASS"
 
       - name: Startup warns on database/server time-zone skew (#163)
         env:
@@ -519,6 +559,25 @@ jobs:
           echo "$out" | grep -q 'NUM_ARITH:sum=13.75,diff=7.25,prod=34.125' \
             || { echo "arith FAILED: SQL-side numeric arithmetic wrong on MySQL"; exit 1; }
           echo "mysql numeric-arithmetic: PASS"
+
+      - name: Compile + run tests/numovf — MySQL silently rounds an over-scale numeric result (pinned)
+        run: |
+          set -euo pipefail
+          DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
+          urweb -dbms mysql -db "$DB" -sql tests/numovf.sql tests/numovf
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/numovf.sql
+          tests/numovf.exe -q -a 127.0.0.1 -p 8103 >/tmp/ovmy.log 2>&1 & echo $! > /tmp/ov.pid
+          sleep 3
+          out=$(curl -s 'http://localhost:8103/Numovf/main' || true)
+          kill "$(cat /tmp/ov.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # Pin the DIVERGENCE documented in basis.urs: unlike Postgres (which
+          # rejects), MySQL silently ROUNDS the same over-scale product to scale
+          # 30 before Ur/Web sees it, so the read succeeds with the rounded value.
+          # This test locks that behavior in so it cannot regress unnoticed.
+          echo "$out" | grep -q 'OVF:1.00000000000000000002' \
+            || { echo "arith-overflow FAILED: MySQL over-scale numeric no longer matches the documented (silently-rounded) contract"; exit 1; }
+          echo "mysql numeric-overflow-rounds-silently: PASS (documented divergence, pinned)"
 
       - name: Negative — the startup schema check REJECTS schema drift (#230)
         run: |

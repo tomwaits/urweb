@@ -594,12 +594,22 @@ val sql_if_then_else : tables ::: {{Type}} -> agg ::: {{Type}} -> exps ::: {Type
 class sql_arith
 val sql_arith_int : sql_arith int
 val sql_arith_float : sql_arith float
-(* Decimal arithmetic performed by the database on the native numeric/decimal
- * column.  On Postgres/MySQL +, -, * are EXACT; SQLite's TEXT numeric is
- * float-approximate under arithmetic.  As with int/float, DIVISION rounding/scale
- * is backend-dependent (Postgres carries a high scale, MySQL a small default).
- * A result outside numeric's supported range (>35 integer or >30 fractional
- * significant digits) fails loudly on read rather than being silently rounded. *)
+(* Decimal arithmetic performed by the DATABASE on the native numeric/decimal
+ * column, so the semantics are the engine's and they DIVERGE by backend once a
+ * result leaves numeric's canonical range -- do NOT assume uniform exactness:
+ *   - Postgres: +, -, * are exact; a result exceeding 30 fractional (or 35
+ *     integer) significant digits fails LOUDLY (a fatal error on read).
+ *   - MySQL: +, -, * are exact within 30 fractional digits, but a result with
+ *     more is SILENTLY ROUNDED to scale 30 by the server before Ur/Web sees it,
+ *     so a high-precision intermediate loses precision on MySQL where Postgres
+ *     would reject it.  (An integer result over 35 digits still fails loudly.)
+ *   - SQLite stores numeric as TEXT and coerces it to a binary double for
+ *     arithmetic, so results are FLOAT-APPROXIMATE even when in range -- past
+ *     ~15 significant digits SQLite is NOT exact under numeric arithmetic.
+ *   - Division agrees on Postgres and MySQL (both scale 30, inherently rounded);
+ *     SQLite is float as above.
+ * For ordinary money/quantity precision (a handful of decimals) all three agree
+ * and are exact; the divergence is confined to high-precision intermediates. *)
 val sql_arith_numeric : sql_arith numeric
 val sql_arith_option : t ::: Type -> sql_arith t -> sql_arith (option t)
 
