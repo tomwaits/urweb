@@ -397,14 +397,21 @@ jobs:
             || { echo "uuid FAILED: nullable Ref column is not char(36) on MySQL"; exit 1; }
           # Load the urweb-generated schema.
           mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/uuidtest.sql
+          # Diagnostics: LD_LIBRARY_PATH farm contents + full dynamic-link
+          # resolution of the nix binary (any "not found" here pinpoints a
+          # missing transitive dep before the run).
+          echo "=== LD_LIBRARY_PATH=$LD_LIBRARY_PATH ==="; ls -l "$MYSQL_RT_LIBS"
+          echo "=== ldd tests/uuidtest.exe ==="; ldd tests/uuidtest.exe || true
           # Run the standalone server: startup performs the #230 schema-structure
           # check against the loaded schema before serving. This is the exact
           # check that rejected char(36) uuid tables until the p_sql_type_base fix
-          # -- so a green run here is the regression guard for that bug.
-          tests/uuidtest.exe -q -a 127.0.0.1 -p 8095 & echo $! > /tmp/uuidmy.pid
+          # -- so a green run here is the regression guard for that bug. Capture
+          # its stdout+stderr so a startup/connect failure is visible.
+          tests/uuidtest.exe -q -a 127.0.0.1 -p 8095 >/tmp/uuidmy.log 2>&1 & echo $! > /tmp/uuidmy.pid
           sleep 3
           out=$(curl -s 'http://localhost:8095/Uuidtest/main' || true)
           kill "$(cat /tmp/uuidmy.pid)" 2>/dev/null || true
+          echo "=== server log ==="; cat /tmp/uuidmy.log 2>/dev/null || true
           echo "=== response ==="; echo "$out"
           # Full round trip through a native uuid PK, INCLUDING the nullable Ref
           # column (the option uuid write/read path). The app only serves at all
