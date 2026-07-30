@@ -16,7 +16,7 @@
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
@@ -52,6 +52,7 @@ fun untangle (file : file) =
                     val thisGroup = foldl (fn ((_, n, _, _, _), thisGroup) =>
                                               IS.add (thisGroup, n)) IS.empty vis
 
+                    (* Direct dependency graph: each node's set of the group's names it uses. *)
                     val used = foldl (fn ((_, n, _, e, _), used) =>
                                        let
                                            val usedHere = U.Exp.fold {typ = typ,
@@ -61,136 +62,93 @@ fun untangle (file : file) =
                                        end)
                                IM.empty vis
 
-                    fun p_graph reachable =
-                        IM.appi (fn (n, reachableHere) =>
-                                    (print (Int.toString n);
-                                     print ":";
-                                     IS.app (fn n' => (print " ";
-                                                       print (Int.toString n'))) reachableHere;
-                                     print "\n")) reachable
+                    fun succs n =
+                        case IM.find (used, n) of
+                            SOME s => s
+                          | NONE => IS.empty
 
-                    (*val () = print "used:\n"
-                    val () = p_graph used*)
+                    (* Tarjan's strongly-connected-components algorithm on the direct
+                     * dependency graph.  It yields the SCCs -- and, via the order in which
+                     * their roots finish, a topological order -- in one O(V + E) DFS.
+                     *
+                     * This replaces an approach that materialized the FULL reachability
+                     * closure (an iterative transitive closure) and then derived SCCs and a
+                     * topological sort from it: O(V^4) in the size of the 'val rec' group and
+                     * pathologically slow on the large mutually-recursive groups that functor
+                     * elaboration (e.g. the Crud functor) produces.  (The identical rewrite
+                     * was applied to core_untangle.sml.) *)
+                    val nextIndex = ref 0
+                    val idxOf : int IM.map ref = ref IM.empty
+                    val lowOf : int IM.map ref = ref IM.empty
+                    val onStack = ref IS.empty
+                    val stack = ref ([] : int list)
+                    val sccsRev = ref ([] : IS.set list)
 
-                    fun expand reachable =
+                    fun getIdx n = valOf (IM.find (!idxOf, n))
+                    fun getLow n = valOf (IM.find (!lowOf, n))
+                    fun setLow (n, v) = lowOf := IM.insert (!lowOf, n, v)
+
+                    fun strongconnect v =
                         let
-                            val changed = ref false
+                            val () = idxOf := IM.insert (!idxOf, v, !nextIndex)
+                            val () = lowOf := IM.insert (!lowOf, v, !nextIndex)
+                            val () = nextIndex := !nextIndex + 1
+                            val () = stack := v :: !stack
+                            val () = onStack := IS.add (!onStack, v)
 
-                            val reachable =
-                                IM.mapi (fn (n, reachableHere) =>
-                                            IS.foldl (fn (n', reachableHere) =>
-                                                         let
-                                                             val more = valOf (IM.find (reachable, n'))
-                                                         in
-                                                             if IS.isEmpty (IS.difference (more, reachableHere)) then
-                                                                 reachableHere
-                                                             else
-                                                                 (changed := true;
-                                                                  IS.union (more, reachableHere))
-                                                         end)
-                                                     reachableHere reachableHere) reachable
+                            val () = IS.app
+                                         (fn w =>
+                                             case IM.find (!idxOf, w) of
+                                                 NONE =>
+                                                 (strongconnect w;
+                                                  setLow (v, Int.min (getLow v, getLow w)))
+                                               | SOME iw =>
+                                                 if IS.member (!onStack, w) then
+                                                     setLow (v, Int.min (getLow v, iw))
+                                                 else
+                                                     ())
+                                         (succs v)
                         in
-                            (reachable, !changed)
-                        end
-
-                    fun iterate reachable =
-                        let
-                            val (reachable, changed) = expand reachable
-                        in
-                            if changed then
-                                iterate reachable
+                            if getLow v = getIdx v then
+                                let
+                                    fun pop scc =
+                                        case !stack of
+                                            [] => scc
+                                          | w :: rest =>
+                                            (stack := rest;
+                                             onStack := IS.delete (!onStack, w);
+                                             let val scc = IS.add (scc, w)
+                                             in if w = v then scc else pop scc
+                                             end)
+                                in
+                                    sccsRev := pop IS.empty :: !sccsRev
+                                end
                             else
-                                reachable
+                                ()
                         end
 
-                    val reachable = iterate used
+                    val () = IS.app (fn v =>
+                                        case IM.find (!idxOf, v) of
+                                            NONE => strongconnect v
+                                          | SOME _ => ())
+                                    thisGroup
 
-                    (*val () = print "reachable:\n"
-                    val () = p_graph reachable*)
-
-                    fun sccs (nodes, acc) =
-                        case IS.find (fn _ => true) nodes of
-                            NONE => acc
-                          | SOME rep =>
-                            let
-                                val reachableHere = valOf (IM.find (reachable, rep))
-
-                                val (nodes, scc) = IS.foldl (fn (node, (nodes, scc)) =>
-                                                                if node = rep then
-                                                                    (nodes, scc)
-                                                                else
-                                                                    let
-                                                                        val reachableThere =
-                                                                            valOf (IM.find (reachable, node))
-                                                                    in
-                                                                        if IS.member (reachableThere, rep) then
-                                                                            (IS.delete (nodes, node),
-                                                                             IS.add (scc, node))
-                                                                        else
-                                                                            (nodes, scc)
-                                                                    end)
-                                                   (IS.delete (nodes, rep), IS.singleton rep) reachableHere
-                            in
-                                sccs (nodes, scc :: acc)
-                            end
-
-                    val sccs = sccs (thisGroup, [])
-                    (*val () = app (fn nodes => (print "SCC:";
-                                               IS.app (fn i => (print " ";
-                                                                print (Int.toString i))) nodes;
-                                               print "\n")) sccs*)
-
-                    fun depends nodes1 nodes2 =
-                        let
-                            val node1 = valOf (IS.find (fn _ => true) nodes1)
-                            val node2 = valOf (IS.find (fn _ => true) nodes2)
-                            val reachable1 = valOf (IM.find (reachable, node1))
-                        in
-                            IS.member (reachable1, node2)
-                        end
-
-                    fun findReady (sccs, passed) =
-                        case sccs of
-                            [] => raise Fail "Untangle: Unable to topologically sort 'val rec'"
-                          | nodes :: sccs =>
-                            if List.exists (depends nodes) passed
-                               orelse List.exists (depends nodes) sccs then
-                                findReady (sccs, nodes :: passed)
-                            else
-                                (nodes, List.revAppend (passed, sccs))
-
-                    fun topo (sccs, acc) =
-                        case sccs of
-                            [] => rev acc
-                          | _ =>
-                            let
-                                val (node, sccs) = findReady (sccs, [])
-                            in
-                                topo (sccs, node :: acc)
-                            end
-
-                    val sccs = topo (sccs, [])
-                    (*val () = app (fn nodes => (print "SCC':";
-                                               IS.app (fn i => (print " ";
-                                                                print (Int.toString i))) nodes;
-                                               print "\n")) sccs*)
+                    (* Root-finish order is dependencies-first; sccsRev is most-recent-first,
+                     * so reverse to recover the topological order (a definition precedes its
+                     * uses), matching the previous implementation. *)
+                    val sccs = rev (!sccsRev)
 
                     fun isNonrec nodes =
                         case IS.find (fn _ => true) nodes of
                             NONE => NONE
                           | SOME node =>
-                            let
-                                val nodes = IS.delete (nodes, node)
-                                val reachableHere = valOf (IM.find (reachable, node))
-                            in
-                                if IS.isEmpty nodes then
-                                    if IS.member (reachableHere, node) then
-                                        NONE
-                                    else
-                                        SOME node
-                                else
+                            if IS.numItems nodes = 1 then
+                                if IS.member (succs node, node) then
                                     NONE
-                            end
+                                else
+                                    SOME node
+                            else
+                                NONE
 
                     val ds = map (fn nodes =>
                                      case isNonrec nodes of
