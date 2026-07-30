@@ -205,6 +205,38 @@ jobs:
           fi
           echo "uuid-integration: PASS (round trip on a native Postgres uuid column)"
 
+      - name: Compile + run tests/tztest — timestamptz is skew-free under a non-UTC DB session (#163)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          # Put the database in a NON-UTC default zone: this is the exact #163
+          # skew condition. A plain `time` column would come back shifted; a
+          # timestamptz must round-trip the instant EXACTLY (it is stored/read in
+          # UTC, and the app pins its own session to UTC).
+          psql "$DB" -v ON_ERROR_STOP=1 -c "ALTER DATABASE urwebtest SET timezone TO 'America/New_York';"
+          result/bin/urweb -dbms postgres -db "$DB" -sql tests/tztest.sql tests/tztest
+          echo "=== emitted schema ==="; cat tests/tztest.sql
+          # The Ts column must be a NATIVE timestamptz (timestamp with time zone).
+          grep -Eiq 'uw_ts[[:space:]]+timestamptz' tests/tztest.sql \
+            || { echo "timestamptz FAILED: Ts column is not native Postgres timestamptz"; exit 1; }
+          psql "$DB" -v ON_ERROR_STOP=1 -f tests/tztest.sql
+          tests/tztest.exe -q -a 127.0.0.1 -p 8094 & echo $! > /tmp/tz.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8094/Tztest/main' || true)
+          kill "$(cat /tmp/tz.pid)" 2>/dev/null || true
+          psql "$DB" -v ON_ERROR_STOP=1 -c "ALTER DATABASE urwebtest SET timezone TO 'UTC';"
+          echo "=== response ==="; echo "$out"
+          # orig, read (NOT NULL) and opt (nullable) must all be the SAME epoch
+          # second -> the instant survived exactly despite the New_York session.
+          o=$(echo "$out" | sed -n 's/.*orig=\([0-9]*\),read=\([0-9-]*\),opt=\([0-9-]*\).*/\1/p')
+          r=$(echo "$out" | sed -n 's/.*orig=\([0-9]*\),read=\([0-9-]*\),opt=\([0-9-]*\).*/\2/p')
+          p=$(echo "$out" | sed -n 's/.*orig=\([0-9]*\),read=\([0-9-]*\),opt=\([0-9-]*\).*/\3/p')
+          test -n "$o" -a "$o" = "$r" -a "$o" = "$p" \
+            || { echo "timestamptz FAILED: instant not preserved (orig=$o read=$r opt=$p) -- skew under a non-UTC DB session"; exit 1; }
+          echo "pg timestamptz-skew-free: PASS (orig=read=opt=$o under America/New_York)"
+
       - name: Startup warns on database/server time-zone skew (#163)
         env:
           PGPASSWORD: postgres
@@ -379,6 +411,34 @@ jobs:
             echo "mysql uuid FAILED: uppercase input was not normalized to lowercase"; exit 1
           fi
           echo "mysql-integration: PASS (uuid round trip incl. nullable Ref, on live MySQL)"
+
+      - name: Compile + run tests/tztest — timestamptz is skew-free under a non-UTC session
+        run: |
+          set -euo pipefail
+          DB="host=127.0.0.1 port=3306 dbname=urwebtest user=urweb password=urweb"
+          # Non-UTC session zone = the skew condition. timestamptz maps to a
+          # zone-agnostic `datetime` written/read in UTC, so the instant must
+          # round-trip exactly regardless of the session time_zone. (Also
+          # exercises the MySQL-8 MYSQL_TIME init fix that this PR makes.)
+          mysql --get-server-public-key -h 127.0.0.1 -P 3306 -uroot -proot \
+            -e "SET GLOBAL time_zone = '+05:00';"
+          urweb -dbms mysql -db "$DB" -sql tests/tztest.sql tests/tztest
+          echo "=== emitted schema ==="; cat tests/tztest.sql
+          grep -Eiq 'uw_ts[[:space:]]+datetime' tests/tztest.sql \
+            || { echo "timestamptz FAILED: Ts column is not a MySQL datetime"; exit 1; }
+          mysql -h 127.0.0.1 -P 3306 -uurweb -purweb urwebtest < tests/tztest.sql
+          tests/tztest.exe -q -a 127.0.0.1 -p 8097 >/tmp/tzmy.log 2>&1 & echo $! > /tmp/tzmy.pid
+          sleep 3
+          out=$(curl -s 'http://localhost:8097/Tztest/main' || true)
+          kill "$(cat /tmp/tzmy.pid)" 2>/dev/null || true
+          echo "=== server log ==="; cat /tmp/tzmy.log 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          o=$(echo "$out" | sed -n 's/.*orig=\([0-9]*\),read=\([0-9-]*\),opt=\([0-9-]*\).*/\1/p')
+          r=$(echo "$out" | sed -n 's/.*orig=\([0-9]*\),read=\([0-9-]*\),opt=\([0-9-]*\).*/\2/p')
+          p=$(echo "$out" | sed -n 's/.*orig=\([0-9]*\),read=\([0-9-]*\),opt=\([0-9-]*\).*/\3/p')
+          test -n "$o" -a "$o" = "$r" -a "$o" = "$p" \
+            || { echo "timestamptz FAILED: instant not preserved (orig=$o read=$r opt=$p) under a non-UTC session"; exit 1; }
+          echo "mysql timestamptz-skew-free: PASS (orig=read=opt=$o under time_zone +05:00)"
 
       - name: Negative — the startup schema check REJECTS schema drift (#230)
         run: |
