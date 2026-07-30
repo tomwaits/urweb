@@ -43,6 +43,7 @@ fun p_sql_type t =
       | Bool => "bool"
       | Time => "timestamp"
       | Blob => "bytea"
+      | Uuid => "uuid"
       | Channel => "int8"
       | Client => "int4"
       | Nullable t => p_sql_type t
@@ -56,6 +57,7 @@ fun p_sql_type_base t =
       | Bool => "boolean"
       | Time => "timestamp without time zone"
       | Blob => "bytea"
+      | Uuid => "uuid"
       | Channel => "bigint"
       | Client => "integer"
       | Nullable t => p_sql_type_base t
@@ -393,6 +395,8 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
               newline,
               string "uw_sqlsuffixBlob = \"::bytea\";",
               newline,
+              string "uw_sqlsuffixUuid = \"::uuid\";",
+              newline,
               string "uw_sqlfmtUint4 = \"%u::int4%n\";",
               newline],
          string "}",
@@ -552,6 +556,11 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
                              string ", ",
                              eLen,
                              string ")"]
+              | Uuid =>
+                if wontLeakStrings then
+                    e
+                else
+                    box [string "uw_strdup(ctx, ", e, string ")"]
               | Channel => box [string "uw_Basis_stringToChannel_error(ctx, ", e, string ")"]
               | Client => box [string "uw_Basis_stringToClient_error(ctx, ", e, string ")"]
 
@@ -565,6 +574,7 @@ fun p_getcol {loc, wontLeakStrings, col = i, typ = t} =
                      string ") ? NULL : ",
                      case t of
                          String => getter t
+                       | Uuid => getter t
                        | _ => box [string "({",
                                    newline,
                                    string (p_sql_ctype t),
@@ -712,6 +722,7 @@ fun p_ensql t e =
         Int => box [string "uw_Basis_attrifyInt(ctx, ", e, string ")"]
       | Float => box [string "uw_Basis_attrifyFloat(ctx, ", e, string ")"]
       | String => e
+      | Uuid => e
       | Char => box [string "uw_Basis_attrifyChar(ctx, ", e, string ")"]
       | Bool => box [string "(", e, string " ? \"TRUE\" : \"FALSE\")"]
       | Time => box [string "uw_Basis_ensqlTime(ctx, ", e, string ")"]
@@ -719,6 +730,7 @@ fun p_ensql t e =
       | Channel => box [string "uw_Basis_attrifyChannel(ctx, ", e, string ")"]
       | Client => box [string "uw_Basis_attrifyClient(ctx, ", e, string ")"]
       | Nullable String => e
+      | Nullable Uuid => e
       | Nullable t => box [string "(",
                            e,
                            string " == NULL ? NULL : ",

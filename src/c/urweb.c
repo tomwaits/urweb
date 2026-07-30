@@ -2942,6 +2942,66 @@ uw_Basis_string uw_Basis_sqlifyChar(uw_context ctx, uw_Basis_char c) {
   return r;
 }
 
+char *uw_sqlsuffixUuid = "";
+
+/* uuid: TEXT-canonical representation -- a validated 36-character string in the
+ * 8-4-4-4-12 form of hex digits (e.g. "550e8400-e29b-41d4-a716-446655440000").
+ * The runtime value is just that (immutable) canonical string. */
+static int uw_uuid_valid(uw_Basis_string s) {
+  int i;
+
+  if (!s)
+    return 0;
+
+  for (i = 0; i < 36; ++i) {
+    char c = s[i];
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (c != '-')
+        return 0;
+    } else if (!isxdigit((int)(unsigned char)c))
+      return 0;
+  }
+  return s[36] == 0;
+}
+
+uw_Basis_string uw_Basis_uuidToString(uw_context ctx, uw_Basis_uuid u) {
+  (void)ctx;
+  return u;
+}
+
+/* Returns NULL (the Ur [None]) when the input is not a canonical UUID; otherwise
+ * a heap copy normalized to lowercase (the Ur [Some] of it). */
+uw_Basis_uuid uw_Basis_stringToUuid(uw_context ctx, uw_Basis_string s) {
+  char *r;
+  int i;
+
+  if (!uw_uuid_valid(s))
+    return NULL;
+
+  r = uw_malloc(ctx, 37);
+  for (i = 0; i < 36; ++i)
+    r[i] = tolower((int)(unsigned char)s[i]);
+  r[36] = 0;
+  return r;
+}
+
+uw_Basis_string uw_Basis_sqlifyUuid(uw_context ctx, uw_Basis_uuid u) {
+  char *r, *s2;
+
+  if (!uw_uuid_valid(u))
+    uw_error(ctx, FATAL, "sqlifyUuid: not a valid UUID");
+
+  uw_check_heap(ctx, 36 + 2 + strlen(uw_sqlsuffixUuid) + 1);
+  r = s2 = ctx->heap.front;
+  *s2++ = '\'';
+  memcpy(s2, u, 36);
+  s2 += 36;
+  *s2++ = '\'';
+  strcpy(s2, uw_sqlsuffixUuid);
+  ctx->heap.front = s2 + strlen(uw_sqlsuffixUuid) + 1;
+  return r;
+}
+
 char *uw_sqlsuffixBlob = "::bytea";
 
 uw_Basis_string uw_Basis_sqlifyBlob(uw_context ctx, uw_Basis_blob b) {

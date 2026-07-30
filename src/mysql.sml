@@ -40,6 +40,7 @@ fun p_sql_type t =
       | Bool => "bool"
       | Time => "timestamp"
       | Blob => "longblob"
+      | Uuid => "char(36)"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type t
@@ -53,6 +54,7 @@ fun p_buffer_type t =
       | Bool => "MYSQL_TYPE_LONG"
       | Time => "MYSQL_TYPE_TIMESTAMP"
       | Blob => "MYSQL_TYPE_BLOB"
+      | Uuid => "MYSQL_TYPE_STRING"
       | Channel => "MYSQL_TYPE_LONGLONG"
       | Client => "MYSQL_TYPE_LONG"
       | Nullable t => p_buffer_type t
@@ -66,6 +68,7 @@ fun p_sql_type_base t =
       | Bool => "tinyint"
       | Time => "timestamp"
       | Blob => "longblob"
+      | Uuid => "char(36)"
       | Channel => "bigint"
       | Client => "int"
       | Nullable t => p_sql_type_base t
@@ -404,6 +407,8 @@ fun init {dbstring, prepared = ss, tables, views, sequences} =
                   newline,
                   string "uw_sqlsuffixBlob = \"\";",
                   newline,
+                  string "uw_sqlsuffixUuid = \"\";",
+                  newline,
                   string "uw_sqlfmtUint4 = \"%u%n\";",
                   newline,
                   newline,
@@ -666,6 +671,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                string "s;",
                                newline,
                                string "})"]
+              | Uuid => getter String
               | Blob => box [string "({",
                              newline,
                              string "uw_Basis_blob b = {length",
@@ -725,6 +731,7 @@ fun p_getcol {loc, wontLeakStrings = _, col = i, typ = t} =
                                string " ? NULL : ",
                                case t of
                                    String => getter t
+                                 | Uuid => getter t
                                  | _ => box [string "({",
                                              newline,
                                              string (p_sql_ctype t),
@@ -776,6 +783,7 @@ fun queryCommon {loc, query, cols, doCols} =
                                                                      string (Int.toString i),
                                                                      string ";",
                                                                      newline]
+                                                    | Uuid => buffers String
                                                     | Blob => box [string "unsigned long length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -818,6 +826,7 @@ fun queryCommon {loc, query, cols, doCols} =
                                                                      string (Int.toString i),
                                                                      string ";",
                                                                      newline]
+                                                    | Uuid => buffers String
                                                     | Char => box [string "out[",
                                                                    string (Int.toString i),
                                                                    string "].buffer_length = 1;",
@@ -974,6 +983,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                      string (Int.toString i),
                                                                      string ";",
                                                                      newline]
+                                                    | Uuid => buffers String
                                                     | Blob => box [string "unsigned long in_length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -1077,6 +1087,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                      string (Int.toString i),
                                                                      string ";",
                                                                      newline]
+                                                    | Uuid => buffers String
                                                     | Char => box [string "in[",
                                                                    string (Int.toString i),
                                                                    string "].buffer = &arg",
@@ -1195,6 +1206,7 @@ fun queryPrepared {loc, id, query, inputs, cols, doCols, nested} =
                                                                           string "} else {",
                                                                           box [case t of
                                                                                    String => box []
+                                                                                 | Uuid => box []
                                                                                  | _ =>
                                                                                    box [string (p_sql_ctype t),
                                                                                         space,
@@ -1294,6 +1306,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                      string (Int.toString i),
                                                                      string ";",
                                                                      newline]
+                                                    | Uuid => buffers String
                                                     | Blob => box [string "unsigned long in_length",
                                                                    string (Int.toString i),
                                                                    string ";",
@@ -1379,6 +1392,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                      string (Int.toString i),
                                                                      string ";",
                                                                      newline]
+                                                    | Uuid => buffers String
                                                     | Blob => box [string "in[",
                                                                    string (Int.toString i),
                                                                    string "].buffer = arg",
@@ -1491,6 +1505,7 @@ fun dmlPrepared {loc, id, dml, inputs, mode} =
                                                                           string "} else {",
                                                                           box [case t of
                                                                                    String => box []
+                                                                                 | Uuid => box []
                                                                                  | _ =>
                                                                                    box [string (p_sql_ctype t),
                                                                                         space,

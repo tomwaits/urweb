@@ -172,6 +172,39 @@ jobs:
           done
           echo "postgres-integration: PASS (round trip on a matching schema)"
 
+      - name: Compile + run tests/uuidtest against live Postgres (native uuid column)
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: urwebtest
+        run: |
+          set -euo pipefail
+          DB="host=localhost port=5432 dbname=urwebtest user=postgres password=postgres"
+          # #106: a table whose primary key is a native Postgres `uuid` column.
+          result/bin/urweb -dbms postgres -db "$DB" -sql tests/uuidtest.sql tests/uuidtest
+          echo "=== emitted schema ==="; cat tests/uuidtest.sql
+          # The Id column must be Postgres's NATIVE uuid type (not text) -- that is
+          # the whole point of the primitive (16-byte storage, indexing, validation).
+          grep -Eiq 'uw_id[[:space:]]+uuid\b' tests/uuidtest.sql \
+            || { echo "uuid FAILED: Id column is not a native Postgres 'uuid' type"; exit 1; }
+          psql "$DB" -v ON_ERROR_STOP=1 -f tests/uuidtest.sql
+          tests/uuidtest.exe -q -a 127.0.0.1 -p 8093 & echo $! > /tmp/uuidtest.pid
+          sleep 2
+          out=$(curl -s 'http://localhost:8093/Uuidtest/main' || true)
+          kill "$(cat /tmp/uuidtest.pid)" 2>/dev/null || true
+          echo "=== response ==="; echo "$out"
+          # The handler parses an UPPERCASE UUID, stores it in the native uuid column,
+          # queries BY uuid equality, and reads it back via uuidToString.
+          echo "$out" | grep -q '550e8400-e29b-41d4-a716-446655440000=hello' \
+            || { echo "uuid FAILED: round trip through a native Postgres uuid column broke"; exit 1; }
+          # Prove normalization happened: the UPPERCASE input must not survive.
+          if echo "$out" | grep -q '550E8400'; then
+            echo "uuid FAILED: uppercase input was not normalized to lowercase"; exit 1
+          fi
+          echo "uuid-integration: PASS (round trip on a native Postgres uuid column)"
+
       - name: Startup warns on database/server time-zone skew (#163)
         env:
           PGPASSWORD: postgres
