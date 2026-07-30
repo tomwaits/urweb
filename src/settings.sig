@@ -164,6 +164,7 @@ signature SETTINGS = sig
            | Blob
            | Uuid
            | Timestamptz
+           | Numeric
            | Channel
            | Client
            | Nullable of sql_type

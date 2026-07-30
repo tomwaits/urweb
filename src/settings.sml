@@ -588,6 +588,7 @@ datatype sql_type =
        | Blob
        | Uuid
        | Timestamptz
+       | Numeric
        | Channel
        | Client
        | Nullable of sql_type
@@ -607,10 +608,12 @@ fun p_sql_ctype t =
           | Blob => "uw_Basis_blob"
           | Uuid => "uw_Basis_uuid"
           | Timestamptz => "uw_Basis_time"
+          | Numeric => "uw_Basis_numeric"
           | Channel => "uw_Basis_channel"
           | Client => "uw_Basis_client"
           | Nullable String => "uw_Basis_string"
           | Nullable Uuid => "uw_Basis_uuid"
+          | Nullable Numeric => "uw_Basis_numeric"
           | Nullable t => p_sql_ctype t ^ "*"
     end
 

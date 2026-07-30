@@ -3002,6 +3002,107 @@ uw_Basis_string uw_Basis_sqlifyUuid(uw_context ctx, uw_Basis_uuid u) {
   return r;
 }
 
+char *uw_sqlsuffixNumeric = "";
+
+/* numeric: an exact decimal number held as a canonical text string.  Like uuid
+ * it is stored/compared as a quoted literal, but cast to the backend's exact-
+ * decimal column type (uw_sqlsuffixNumeric = "::numeric" on Postgres), so no
+ * value ever touches floating point.  Accepts optional '-', digits and at most
+ * one '.'; canonicalizes by dropping redundant leading/trailing zeros, a bare
+ * trailing '.', and a '-' on zero -- so a value round-trips identically across
+ * backends even where the column pads (MySQL decimal) or preserves scale. */
+static int uw_numeric_valid(uw_Basis_string s) {
+  const char *p = s;
+  int digits = 0, dots = 0;
+
+  if (!s)
+    return 0;
+  if (*p == '-' || *p == '+')
+    p++;
+  for (; *p; p++) {
+    if (*p >= '0' && *p <= '9')
+      digits++;
+    else if (*p == '.') {
+      if (++dots > 1)
+        return 0;
+    } else
+      return 0;
+  }
+  return digits > 0;
+}
+
+static uw_Basis_string uw_normalize_numeric(uw_context ctx, uw_Basis_string s) {
+  const char *p, *is, *ie, *fs, *fe;
+  int neg = 0, ilen, flen;
+  char *r, *o;
+
+  if (!uw_numeric_valid(s))
+    return NULL;
+  p = s;
+  if (*p == '-') { neg = 1; p++; }
+  else if (*p == '+') p++;
+  is = p; while (*p >= '0' && *p <= '9') p++; ie = p;
+  if (*p == '.') { p++; fs = p; while (*p >= '0' && *p <= '9') p++; fe = p; }
+  else { fs = p; fe = p; }
+  while (is < ie && *is == '0') is++;       /* strip leading zeros of the int part */
+  while (fe > fs && fe[-1] == '0') fe--;     /* strip trailing zeros of the fraction */
+  ilen = (int)(ie - is);
+  flen = (int)(fe - fs);
+  if (ilen == 0 && flen == 0) {
+    r = uw_malloc(ctx, 2);
+    r[0] = '0'; r[1] = 0;
+    return r;
+  }
+  r = o = uw_malloc(ctx, (neg ? 1 : 0) + (ilen ? ilen : 1) + (flen ? flen + 1 : 0) + 1);
+  if (neg) *o++ = '-';
+  if (ilen) { memcpy(o, is, ilen); o += ilen; } else *o++ = '0';
+  if (flen) { *o++ = '.'; memcpy(o, fs, flen); o += flen; }
+  *o = 0;
+  return r;
+}
+
+uw_Basis_string uw_Basis_numericToString(uw_context ctx, uw_Basis_numeric n) {
+  (void)ctx;
+  return n;
+}
+
+/* Returns NULL (Ur [None]) for a non-decimal input; otherwise the canonical form. */
+uw_Basis_numeric uw_Basis_stringToNumeric(uw_context ctx, uw_Basis_string s) {
+  return uw_normalize_numeric(ctx, s);
+}
+
+uw_Basis_numeric uw_Basis_stringToNumeric_error(uw_context ctx, uw_Basis_string s) {
+  uw_Basis_numeric r = uw_normalize_numeric(ctx, s);
+  if (r)
+    return r;
+  uw_error(ctx, FATAL, "Can't parse numeric: %s", uw_Basis_htmlifyString(ctx, s));
+}
+
+uw_Basis_string uw_Basis_sqlifyNumeric(uw_context ctx, uw_Basis_numeric n) {
+  char *c = uw_normalize_numeric(ctx, n), *r, *s2;
+  size_t len;
+
+  if (!c)
+    uw_error(ctx, FATAL, "sqlifyNumeric: not a valid numeric");
+  len = strlen(c);
+  uw_check_heap(ctx, 1 + len + 1 + strlen(uw_sqlsuffixNumeric) + 1);
+  r = s2 = ctx->heap.front;
+  *s2++ = '\'';
+  memcpy(s2, c, len);
+  s2 += len;
+  *s2++ = '\'';
+  strcpy(s2, uw_sqlsuffixNumeric);
+  ctx->heap.front = s2 + strlen(uw_sqlsuffixNumeric) + 1;
+  return r;
+}
+
+char *uw_Basis_sqlifyNumericN(uw_context ctx, uw_Basis_numeric *n) {
+  if (n == NULL)
+    return "NULL";
+  else
+    return uw_Basis_sqlifyNumeric(ctx, *n);
+}
+
 char *uw_sqlsuffixBlob = "::bytea";
 
 uw_Basis_string uw_Basis_sqlifyBlob(uw_context ctx, uw_Basis_blob b) {
