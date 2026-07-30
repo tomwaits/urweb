@@ -193,13 +193,13 @@ QUERY_FIXTURES = qguard agg
 test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe
 	@echo ""
 	@echo "=== make test: fixtures built; running checks (each announced below; the slow part was the full demo compile above) ==="
-	@echo "==> [tc 1/6] sigfk        (signature-level FK disjointness, #267)"
+	@echo "==> [tc 1/4] sigfk        (signature-level FK disjointness, #267)"
 	bin/urweb -tc -boot -noEmacs tests/sigfk || (echo "Test 'sigfk' failed: a PK table and an FK table referencing it, both in an ascribed signature, did not typecheck (urweb/urweb#267)"; false)
-	@echo "==> [tc 2/6] blockquote   (the blockquote HTML tag, #259)"
+	@echo "==> [tc 2/4] blockquote   (the blockquote HTML tag, #259)"
 	bin/urweb -tc -boot -noEmacs tests/blockquote || (echo "Test 'blockquote' failed: the blockquote tag did not typecheck (urweb/urweb#259)"; false)
-	@echo "==> [tc 3/6] inputattrs   (input validation attributes, #275)"
+	@echo "==> [tc 3/4] inputattrs   (input validation attributes, #275)"
 	bin/urweb -tc -boot -noEmacs tests/inputattrs || (echo "Test 'inputattrs' failed: input validation attributes (Pattern/Minlength/Maxlength/Autocomplete/Readonly/Disabled) did not typecheck (urweb/urweb#275)"; false)
-	@echo "==> [tc 4/6] arrowguard   (-> accepted in guarded types, #197)"
+	@echo "==> [tc 4/4] arrowguard   (-> accepted in guarded types, #197)"
 	bin/urweb -tc -boot -noEmacs tests/arrowguard || (echo "Test 'arrowguard' failed: a guarded type written with -> instead of => did not typecheck (urweb/urweb#197)"; false)
 	@# PR#279: a cookie set with HttpOnly = True must emit `httponly` in the
 	@# Set-Cookie response header.
@@ -278,10 +278,16 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@echo "==> [http 6/6] svgtag (inline svg/path render with viewBox + fill-rule, #259) — serving on :8088"
 	tests/svgtag.exe -q -a 127.0.0.1 -p 8088 & echo $$! > $(TESTPID)
 	sleep 1
+	@# Liveness gate: if the fresh server died (e.g. bind failure against a stale
+	@# survivor from an aborted run), fail HERE rather than letting the greps pass
+	@# against whatever old process still answers on the port.
+	kill -0 `cat $(TESTPID)` || (echo "Test 'svgtag' failed: the freshly started server is not running (stale process on :8088?)"; false)
 	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'viewBox="0 0 24 24"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: viewBox attribute not rendered with its interior capital (urweb/urweb#259)"; false)
 	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'fill-rule="evenodd"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: Fill_rule did not render as fill-rule (urweb/urweb#259)"; false)
 	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'stroke-width="2"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: Stroke_width did not render as stroke-width (urweb/urweb#259)"; false)
 	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'xmlns="http://www.w3.org/2000/svg"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: xmlns attribute missing from the svg tag (urweb/urweb#259)"; false)
+	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'd="M9 12l2 2 4-4"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: single-letter D field did not render as the d attribute (urweb/urweb#259)"; false)
+	(curl -s 'http://localhost:8088/Svgtag/main' | grep -q 'width="24"') || (kill `cat $(TESTPID)`; echo "Test 'svgtag' failed: string-typed Width did not render on svg (urweb/urweb#259)"; false)
 	kill `cat $(TESTPID)`
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered

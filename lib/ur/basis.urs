@@ -977,7 +977,16 @@ val blockquote : bodyTag boxAttrs
  * produces the SVG names verbatim -- record field names keep interior capitals
  * (ViewBox -> viewBox) and '_' renders as '-' (Fill_rule -> fill-rule) -- so
  * these are ordinary tag declarations. The attribute sets are the issue's
- * deliberately minimal ones; extend as real needs appear. *)
+ * deliberately minimal ones; extend as real needs appear.
+ *
+ * Honest limits of "minimal": children are typed as ordinary Body content, NOT
+ * SVG-checked -- e.g. <svg><p/></svg> type-checks but HTML5 foreign-content
+ * breakout re-parents the <p> outside the svg, and client-side widgets
+ * (<dyn>, c* controls) inside <svg> splice HTML placeholder nodes that do not
+ * render. Width/Height are string (SVG lengths like "100%"), deliberately
+ * unlike img's int. When extending: only STRING attributes get the '_' -> '-'
+ * rendering; the bool-attribute branch lowercases without translating, so a
+ * future bool SVG attribute with an underscore needs monoize work first. *)
 val svg : bodyTag ([Width = string, Height = string, ViewBox = string,
                     Fill = string, Xmlns = string] ++ boxAttrs)
 val path : bodyTag ([Fill_rule = string, D = string, Fill = string,
