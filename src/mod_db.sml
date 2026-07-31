@@ -42,6 +42,7 @@ structure IM = IntBinaryMap
 
 type oneMod = {Decl : decl,
                When : Time.time,
+               Racy : bool, (* stored while its file's mtime was <1s old -- never trusted (see lookup) *)
                Deps : SS.set,
                HasErrors: bool ref (* We're saving modules with errors so tooling can find them *)
               }
@@ -84,6 +85,21 @@ fun dContainsUndeterminedUnif d =
          decl = fn _ => false}
         d
 
+val trace = Option.isSome (OS.Process.getEnv "URWEB_MODDB_TRACE")
+fun tr msg = if trace then TextIO.output (TextIO.stdErr, "MODDB: " ^ msg () ^ "\n") else ()
+
+(* File mtimes are whole-second (MLton's OS.FileSys.modTime), so an edit in the
+ * SAME second as the recorded stamp is invisible to tm equality.  The guard is
+ * git's index rule applied at the same point git applies it -- WRITE time: an
+ * entry stored while its file was less than a second old is marked Racy and
+ * never trusted, so the module (and its dependent cone) re-elaborates once on
+ * the next request, by which point the re-stored stamp is cold and converges.
+ * (A lookup-time-only check is NOT equivalent: the entry's tm is fixed while
+ * the wall clock advances, so a racily-stored stale entry would become trusted
+ * forever one second later.)  A far-future mtime (clock skew, NFS) is
+ * permanently racy: correct but re-elaborates that cone every run. *)
+fun racyFresh tm = Time.>= (Time.+ (tm, Time.fromSeconds 1), Time.now ())
+
 fun insert (d, tm, hasErrors) =
     let
         val xn =
@@ -95,22 +111,26 @@ fun insert (d, tm, hasErrors) =
         case xn of
             NONE => ()
           | SOME (x, n) =>
+            (* There used to be a skip fast-path here ("keep module when its
+             * file didn't change and it was OK before").  It was UNSOUND
+             * (fork issue #60): insert only runs after the module was
+             * actually RE-ELABORATED (its cache lookup missed), so the
+             * fresh declaration carries NEW module ids -- skipping kept the
+             * old declaration AND suppressed the dependent eviction below,
+             * leaving cached dependents pointing at ids that no longer
+             * exist in the current run (Corify.St.lookupStrById).  After a
+             * real re-elaboration the only sound move is to store the fresh
+             * declaration and evict dependents, unconditionally.  (Refusing to
+             * store a Racy entry instead would be worse: dependents inserted
+             * later in this run resolve their Deps through byId, and a missing
+             * entry silently drops the edge -- future edits would then stop
+             * evicting them.) *)
             let
-                (* Keep module when it's file didn't change and it was OK before *)
-                val skipIt =
-                    case SM.find (!byName, x) of
-                        NONE => false
-                      | SOME r => #When r = tm
-                                  andalso not (!(#HasErrors r))
-                                  (* We save results of error'd compiler passes *)
-                                  (* so modules that still have undetermined unif variables *)
-                                  (* should not be reused since those are unsuccessfully compiled *)
-                                  andalso not (dContainsUndeterminedUnif (#Decl r))
+                val racy = racyFresh tm
+                val () = tr (fn () => "insert " ^ x ^ " when=" ^ Time.toString tm
+                                      ^ (if racy then " RACY" else "") ^ " STORE")
             in
-                if skipIt then
-                    ()
-                else
-                    let
+                let
                         fun doMod (n', deps) =
                             case IM.find (!byId, n') of
                                 NONE =>
@@ -157,6 +177,7 @@ fun insert (d, tm, hasErrors) =
                                                       SS.empty d
                     in
                         byName := SM.insert (SM.filter (fn r => if SS.member (#Deps r, x) then
+                                                                    (tr (fn () => "evict dependent of " ^ x);
                                                                     case #1 (#Decl r) of
                                                                         DStr (_, n', _, _) =>
                                                                         (byId := #1 (IM.remove (!byId, n'));
@@ -164,12 +185,13 @@ fun insert (d, tm, hasErrors) =
                                                                       | DFfiStr (_, n', _) =>
                                                                         (byId := #1 (IM.remove (!byId, n'));
                                                                          false)
-                                                                      | _ => raise Fail "ModDb: Impossible decl"
+                                                                      | _ => raise Fail "ModDb: Impossible decl")
                                                                 else
                                                                     true) (!byName),
                                              x,
                                              {Decl = d,
                                               When = tm,
+                                              Racy = racy,
                                               Deps = deps,
                                               HasErrors = hasErrors
                                             });
@@ -183,20 +205,22 @@ fun lookup (d : Source.decl) =
     case #1 d of
         Source.DStr (x, _, SOME tm, _, _) =>
         (case SM.find (!byName, x) of
-             NONE => NONE
+             NONE => (tr (fn () => "lookup " ^ x ^ " -> absent"); NONE)
            | SOME r =>
-             if tm = #When r andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
-                 SOME (#Decl r)
+             if tm = #When r andalso not (#Racy r)
+                andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
+                 (tr (fn () => "lookup " ^ x ^ " -> HIT"); SOME (#Decl r))
              else
-                 NONE)
+                 (tr (fn () => "lookup " ^ x ^ " -> stale (src=" ^ Time.toString tm ^ " cached=" ^ Time.toString (#When r) ^ (if #Racy r then " RACY" else "") ^ ")"); NONE))
       | Source.DFfiStr (x, _, SOME tm) =>
         (case SM.find (!byName, x) of
-             NONE => NONE
+             NONE => (tr (fn () => "lookup " ^ x ^ " -> absent"); NONE)
            | SOME r =>
-             if tm = #When r andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
-                 SOME (#Decl r)
+             if tm = #When r andalso not (#Racy r)
+                andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
+                 (tr (fn () => "lookup " ^ x ^ " -> HIT"); SOME (#Decl r))
              else
-                 NONE)
+                 (tr (fn () => "lookup " ^ x ^ " -> stale (src=" ^ Time.toString tm ^ " cached=" ^ Time.toString (#When r) ^ (if #Racy r then " RACY" else "") ^ ")"); NONE))
       | _ => NONE
 
 fun lookupModAndDepsIncludingErrored name =

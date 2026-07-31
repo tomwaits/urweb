@@ -363,12 +363,36 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	printf 'fun main () : transaction page = return <xml><body>HELLO</body></xml>\n' > $(DCACHEDIR)/hello.ur
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a CONTENT edit still hit the cache -- stale-serve hazard (urweb/urweb#133)"; false)
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 hello | grep -q 'daemon cache hit') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: cache did not re-arm after the recompile (urweb/urweb#133)"; false)
-	@# Library staleness (the review's BLOCKER-1 repro) is verified DIRECTLY on
-	@# the rig (library edit -> miss -> rebuilt exe carries the new string; see
-	@# PR #58) but is NOT exercised here: the daemon's incremental elaborator
-	@# crashes on library-only edits independent of the cache (fork issue #60,
-	@# Fail: Corify.St.lookupStrById -- ModDb keeps stale module IDs for the
-	@# unedited root). Wire the library case into this block once #60 is fixed.
+	@# Library staleness (the cache review's BLOCKER-1 repro) AND the fork
+	@# issue #60 regression in one: a LIBRARY-ONLY edit (same byte length, no
+	@# sleep -- only the content hash can catch the cache side) must MISS, and
+	@# the daemon must then REBUILD it correctly -- pre-fix, ModDb's Top
+	@# lookup/insert timestamp asymmetry + the unsound insert skip-path made
+	@# exactly this recompile crash with Corify.St.lookupStrById and leave a
+	@# stale exe.
+	mkdir -p $(DCACHEDIR)/mylib
+	printf 'val v : string\n' > $(DCACHEDIR)/mylib/src.urs
+	printf 'val v = "LIBV1"\n' > $(DCACHEDIR)/mylib/src.ur
+	printf 'src\n' > $(DCACHEDIR)/mylib/lib.urp
+	printf 'library mylib\n\nlibmain\n' > $(DCACHEDIR)/libmain.urp
+	printf 'fun main () : transaction page = return <xml><body>{[Src.v]}</body></xml>\n' > $(DCACHEDIR)/libmain.ur
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: library project cold compile failed (urweb/urweb#133)"; false)
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | grep -q 'daemon cache hit') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: unchanged library project did not hit (urweb/urweb#133)"; false)
+	printf 'val v = "LIBV2"\n' > $(DCACHEDIR)/mylib/src.ur
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a LIBRARY source edit hit the cache -- stale-serve (urweb/urweb#133)"; false)
+	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV2') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: the library-edit recompile did not produce a fresh exe -- fork issue #60 regressed (ModDb id staleness)"; false)
+	@# #60 defect 3 (the racy-mtime TOCTOU, deterministic): edit the library
+	@# again but FORCE the file's mtime back to the compiled version's second
+	@# (touch -r against a saved reference), simulating two saves within one
+	@# second. tm equality then holds, so only the insert-time Racy smudge can
+	@# prevent ModDb serving the stale elaboration -- pre-fix this produced a
+	@# WRONG exe with exit 0, which the output cache then pinned forever.
+	cp -p $(DCACHEDIR)/mylib/src.ur $(DCACHEDIR)/mylib/.src.stamp
+	printf 'val v = "LIBV3"\n' > $(DCACHEDIR)/mylib/src.ur
+	touch -r $(DCACHEDIR)/mylib/.src.stamp $(DCACHEDIR)/mylib/src.ur
+	sleep 2
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a same-mtime content edit hit the OUTPUT cache -- content hashing regressed (urweb/urweb#133)"; false)
+	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV3') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a SAME-SECOND library edit was served stale by the incremental elaborator -- the fork issue #60 racy-mtime (Racy smudge) fix regressed"; false)
 	-cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
