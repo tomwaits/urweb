@@ -69,7 +69,27 @@ fun kunifyError env err =
         [("Kind 1", p_kind env k1),
          ("Kind 2", p_kind env k2)]
 
-fun p_con env c = P.p_con env (ElabOps.reduceCon env c)
+(* ElabOps.reduceCon raises Fail on a constructor it cannot normalize
+ * ("reduceCon: Unknown substructure" / "...Unknown con in structure",
+ * elab_ops.sml).  Every call below is on the ERROR-REPORTING path, where an
+ * escaping exception turns a clean, actionable type error into a compiler
+ * crash -- the user loses the diagnostic entirely, which for a type-carried
+ * security property is the worst possible failure mode.  Normalization is a
+ * PRESENTATION nicety here: when it fails, the un-normalized constructor is
+ * still correct and still useful, so degrade to it.
+ *
+ * Total and pure: returns NONE only for the documented Fail, so any other
+ * exception still propagates rather than being silently swallowed (we do not
+ * mask what we do not understand). *)
+fun reduceConOpt env c = SOME (ElabOps.reduceCon env c) handle Fail _ => NONE
+
+fun p_con env c =
+    case reduceConOpt env c of
+        SOME c' => P.p_con env c'
+      (* Not silent: say the form is un-normalized, so a reader is not misled
+         into thinking this is the reduced type. *)
+      | NONE => box [P.p_con env c,
+                     PD.string " (shown un-normalized: internal normalization failed)"]
 
 datatype con_error =
          UnboundCon of ErrorMsg.span * string
@@ -189,7 +209,11 @@ datatype exp_error =
      | IllegalFlex of Source.exp
 
 val simplExp = U.Exp.mapB {kind = fn _ => fn k => k,
-                           con = fn env => fn c => #1 (ElabOps.reduceCon env (c, ErrorMsg.dummySpan)),
+                           (* Error path: fall back to the un-normalized con rather
+                              than letting reduceCon's Fail escape (fork #17). *)
+                           con = fn env => fn c => (case reduceConOpt env (c, ErrorMsg.dummySpan) of
+                                                        SOME c' => #1 c'
+                                                      | NONE => c),
                            exp = fn _ => fn e => e,
                            bind = fn (env, U.Exp.RelC (x, k)) => E.pushCRel env x k
                                    | (env, U.Exp.NamedC (x, n, k, co)) => E.pushCNamedAs env x n k co
@@ -390,16 +414,19 @@ fun findTableForCunifsError (env: ElabEnv.env) (ds: Elab.decl list) =
                                 , actualTable (* fs *)), _)
                           , _ (* fieldsOf *)), _)
                     , (CName tableName, _))
-                => (case #1 (ElabOps.reduceCon env actualTable) of
-                        CConcat
+                (* Both reductions are best-effort: this arm only ADDS a friendlier
+                   table-diff diagnostic, so on failure we fall through to the
+                   generic message rather than crashing (fork #17). *)
+                => (case Option.map #1 (reduceConOpt env actualTable) of
+                        SOME (CConcat
                             ( (actualFields, _)
-                            , (CUnif _, _)) =>
-                        (case #1 (ElabOps.reduceCon env expectedTable) of
-                             CApp
+                            , (CUnif _, _))) =>
+                        (case Option.map #1 (reduceConOpt env expectedTable) of
+                             SOME (CApp
                                  ((CApp
                                        (( CModProj (_, _, "sql_table"), _)
                                        , (expectedFields, _)), _)
-                                 , _ (* {{Unit}} *)) =>
+                                 , _ (* {{Unit}} *))) =>
                              (case (actualFields, expectedFields) of
                                   (CRecord (_, actRows), CRecord (_, expRows)) =>
                                   (case diffRows env actRows expRows of
@@ -440,7 +467,10 @@ fun findTableForCunifsError (env: ElabEnv.env) (ds: Elab.decl list) =
                                             ) 
                                             ds
     in
-        print
+        (* stderr, like every other diagnostic (eprefaces/ErrorMsg): on stdout
+           this line interleaves with program output and is invisible to the
+           usual `2>` capture (fork #17 NIT). *)
+        eprint
             (p_list
                   (fn (tablename, rows) =>
                       box [ vbox [PD.string ("Found problem in table " ^ tablename) , PD.newline]
