@@ -4864,8 +4864,17 @@ fun elabFile basis basis_tm topStr topSgn top_tm env changeEnv file =
         val () = discoverC char "char"
         val () = discoverC table "sql_table"
 
+        (* One timestamp for BOTH the cache lookup and the insert (urweb/urweb
+         * fork #60): they used to differ -- lookup on max(top_tm, basis_tm),
+         * insert on bare top_tm -- so with basis.urs newer than top.ur the Top
+         * entry was permanently stale: re-elaborated EVERY request with FRESH
+         * module ids while the insert SKIPped (old When = top_tm), which also
+         * suppressed dependent eviction; any project entry that then cache-hit
+         * referenced the dead ids and Corify failed with lookupStrById. *)
+        val topCacheTm = if Time.< (top_tm, basis_tm) then basis_tm else top_tm
+
         val d = (L.DStr ("Top", SOME (L.SgnConst topSgn, ErrorMsg.dummySpan),
-                         SOME (if Time.< (top_tm, basis_tm) then basis_tm else top_tm),
+                         SOME topCacheTm,
                          (L.StrConst topStr, ErrorMsg.dummySpan), false), ErrorMsg.dummySpan)
         val (top_n, env', topSgn, topStr) =
             case (if !incremental then ModDb.lookup d else NONE) of
@@ -4901,7 +4910,7 @@ fun elabFile basis basis_tm topStr topSgn top_tm env changeEnv file =
 
                     val (env', top_n) = E.pushStrNamed env' "Top" topSgn
                 in
-                    ModDb.insert ((L'.DStr ("Top", top_n, topSgn, topStr), ErrorMsg.dummySpan), top_tm, ref false); (* TODO: also check for errors? *)
+                    ModDb.insert ((L'.DStr ("Top", top_n, topSgn, topStr), ErrorMsg.dummySpan), topCacheTm, ref false); (* TODO: also check for errors? *)
                     (top_n, env', topSgn, topStr)
                 end
               | SOME (d' as (L'.DStr (_, top_n, topSgn, topStr), _)) =>

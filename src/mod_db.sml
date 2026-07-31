@@ -84,6 +84,9 @@ fun dContainsUndeterminedUnif d =
          decl = fn _ => false}
         d
 
+val trace = Option.isSome (OS.Process.getEnv "URWEB_MODDB_TRACE")
+fun tr s = if trace then TextIO.output (TextIO.stdErr, "MODDB: " ^ s ^ "\n") else ()
+
 fun insert (d, tm, hasErrors) =
     let
         val xn =
@@ -96,21 +99,19 @@ fun insert (d, tm, hasErrors) =
             NONE => ()
           | SOME (x, n) =>
             let
-                (* Keep module when it's file didn't change and it was OK before *)
-                val skipIt =
-                    case SM.find (!byName, x) of
-                        NONE => false
-                      | SOME r => #When r = tm
-                                  andalso not (!(#HasErrors r))
-                                  (* We save results of error'd compiler passes *)
-                                  (* so modules that still have undetermined unif variables *)
-                                  (* should not be reused since those are unsuccessfully compiled *)
-                                  andalso not (dContainsUndeterminedUnif (#Decl r))
+                (* There used to be a skip fast-path here ("keep module when its
+                 * file didn't change and it was OK before").  It was UNSOUND
+                 * (fork issue #60): insert only runs after the module was
+                 * actually RE-ELABORATED (its cache lookup missed), so the
+                 * fresh declaration carries NEW module ids -- skipping kept the
+                 * old declaration AND suppressed the dependent eviction below,
+                 * leaving cached dependents pointing at ids that no longer
+                 * exist in the current run (Corify.St.lookupStrById).  After a
+                 * real re-elaboration the only sound move is to store the fresh
+                 * declaration and evict dependents, unconditionally. *)
             in
-                if skipIt then
-                    ()
-                else
-                    let
+                tr ("insert " ^ x ^ " when=" ^ Time.toString tm ^ " STORE");
+                let
                         fun doMod (n', deps) =
                             case IM.find (!byId, n') of
                                 NONE =>
@@ -157,6 +158,7 @@ fun insert (d, tm, hasErrors) =
                                                       SS.empty d
                     in
                         byName := SM.insert (SM.filter (fn r => if SS.member (#Deps r, x) then
+                                                                    (tr ("evict dependent of " ^ x);
                                                                     case #1 (#Decl r) of
                                                                         DStr (_, n', _, _) =>
                                                                         (byId := #1 (IM.remove (!byId, n'));
@@ -164,7 +166,7 @@ fun insert (d, tm, hasErrors) =
                                                                       | DFfiStr (_, n', _) =>
                                                                         (byId := #1 (IM.remove (!byId, n'));
                                                                          false)
-                                                                      | _ => raise Fail "ModDb: Impossible decl"
+                                                                      | _ => raise Fail "ModDb: Impossible decl")
                                                                 else
                                                                     true) (!byName),
                                              x,
@@ -179,21 +181,34 @@ fun insert (d, tm, hasErrors) =
             end
     end
 
+(* File mtimes are whole-second on this platform (MLton's OS.FileSys.modTime),
+ * so an edit landing in the SAME second as the cached elaboration is
+ * invisible to the tm-equality test -- the stale elaboration would be reused
+ * SILENTLY (the worse sibling of fork issue #60's crash).  Standard fix (the
+ * same one git's index uses for its racy-timestamp problem): never trust a
+ * cache entry whose file timestamp is within the last second; such a module
+ * just re-elaborates.  Zero cost in steady state -- only files modified less
+ * than a second ago are affected, exactly the dev-loop moment where staleness
+ * must not happen. *)
+fun racyFresh tm = Time.>= (Time.+ (tm, Time.fromSeconds 1), Time.now ())
+
 fun lookup (d : Source.decl) =
     case #1 d of
         Source.DStr (x, _, SOME tm, _, _) =>
         (case SM.find (!byName, x) of
-             NONE => NONE
+             NONE => (tr ("lookup " ^ x ^ " -> absent"); NONE)
            | SOME r =>
-             if tm = #When r andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
-                 SOME (#Decl r)
+             if tm = #When r andalso not (racyFresh tm)
+                andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
+                 (tr ("lookup " ^ x ^ " -> HIT"); SOME (#Decl r))
              else
-                 NONE)
+                 (tr ("lookup " ^ x ^ " -> stale (src=" ^ Time.toString tm ^ " cached=" ^ Time.toString (#When r) ^ (if racyFresh tm then " racy" else "") ^ ")"); NONE))
       | Source.DFfiStr (x, _, SOME tm) =>
         (case SM.find (!byName, x) of
              NONE => NONE
            | SOME r =>
-             if tm = #When r andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
+             if tm = #When r andalso not (racyFresh tm)
+                andalso not (!(#HasErrors r)) andalso not (dContainsUndeterminedUnif (#Decl r)) then
                  SOME (#Decl r)
              else
                  NONE)
