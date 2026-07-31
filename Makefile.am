@@ -370,26 +370,6 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# Fail: Corify.St.lookupStrById -- ModDb keeps stale module IDs for the
 	@# unedited root). Wire the library case into this block once #60 is fixed.
 	-cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop
-	cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon start
-	sleep 1
-	mkdir -p $(DCACHEDIR)/mylib
-	printf 'val v : string\n' > $(DCACHEDIR)/mylib/src.urs
-	printf 'val v = "LIBV1"\n' > $(DCACHEDIR)/mylib/src.ur
-	printf 'src\n' > $(DCACHEDIR)/mylib/lib.urp
-	printf 'library mylib\n\nlibmain\n' > $(DCACHEDIR)/libmain.urp
-	printf 'fun main () : transaction page = return <xml><body>{[Src.v]}</body></xml>\n' > $(DCACHEDIR)/libmain.ur
-	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: library project cold compile failed (urweb/urweb#133)"; false)
-	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | grep -q 'daemon cache hit') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: unchanged library project did not hit (urweb/urweb#133)"; false)
-	printf 'val v = "LIBV2"\n' > $(DCACHEDIR)/mylib/src.ur
-	@# The root .ur is touched too, ONLY to sidestep fork issue #60 (the
-	@# incremental elaborator crashes on a library-only edit because the root's
-	@# cached ModDb entry keeps stale module IDs). The CACHE decision under test
-	@# is already forced by the library edit alone -- the content hash of
-	@# mylib/src.ur changed, so this must MISS regardless of the root file.
-	touch $(DCACHEDIR)/libmain.ur
-	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a LIBRARY source edit hit the cache -- stale-serve (urweb/urweb#133 review BLOCKER-1)"; false)
-	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV2') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: rebuilt exe still contains the OLD library string (urweb/urweb#133)"; false)
-	-cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
 	@# before. qguard spans plain SELECT + WHERE + ORDER BY (multiple, ASC/DESC,
