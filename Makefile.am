@@ -29,7 +29,7 @@ clean-local:
 		src/urweb.cm src/urweb.mlb xml/parse xml/entities.sml \
 		mlb-path-map
 	rm -f demo/demo.exe demo/demo.sql
-	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe tests/jsesc.exe tests/postcommit.exe tests/postcommitffi.o tests/postcommit.sql tests/postcommit.fail.out $(TESTPCDB) $(TESTDLOG) $(TESTDOUT) tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql
+	rm -f tests/dce.exe tests/dce.out tests/cookiehttponly.exe tests/jsonsurrogate.exe tests/respstatus.exe tests/notfound.exe tests/daemon.exe tests/svgtag.exe tests/jsesc.exe tests/postcommit.exe tests/postcommitffi.o tests/postcommit.sql tests/postcommit.fail.out $(TESTPCDB) $(TESTDLOG) $(TESTDOUT) tests/hdrtok.exe tests/hdrbad.exe tests/pkeyorder.exe tests/pkeyorder.sql tests/pgtest.exe tests/pgtest.sql tests/yk2.exe tests/yk3.exe
 	rm -rf .cm src/.cm
 
 src/urweb.cm: src/prefix.cm src/sources
@@ -221,6 +221,16 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# must be a conscious, reviewed decision, not silent drift.
 	@echo "==> [tc 6/8] deepunif_red (#266 limitation still pinned red)"
 	(bin/urweb -tc -boot -noEmacs tests/deepunif_red 2>&1 | grep -q 'too-deep unification variable') || (echo "Test 'deepunif_red' failed: the verbatim urweb/urweb#266 shape no longer fails with the too-deep-unification-variable error -- the elaborator depth guard changed; review deliberately (fork issue #20)"; false)
+	@# Crash pin (fork #6 fallout): the yankLets purity guard once tested sibling
+	@# fields with the WRONG environment, so simpleImpure's ERel lookup ran past
+	@# the end of it and raised UnboundRel -- an exception no pass handles.
+	@# These are FULL compiles on purpose: -tc stops long before the Mono phase
+	@# where the guard runs, so a typecheck-only gate would be vacuous. yk3 is the
+	@# two-let control (it never crashed; it silently read the wrong binder) and
+	@# exists to stop anyone simplifying yk2 down and losing the coverage.
+	@echo "==> [crash] yk2/yk3  (yankLets environment; must COMPILE, not raise UnboundRel)"
+	bin/urweb -boot -noEmacs -ccopt -O1 tests/yk2 || (echo "Test 'yk2' failed: the yankLets sibling-purity guard raised UnboundRel (or otherwise failed to compile) -- it is consulting the wrong de Bruijn environment again"; false)
+	bin/urweb -boot -noEmacs -ccopt -O1 tests/yk3 || (echo "Test 'yk3' failed: the two-let control no longer compiles"; false)
 	@echo "==> [tc 7/8] obgroup      (#269: grouped-column + SUM(col) aggregate ORDER BY typecheck)"
 	bin/urweb -tc -boot -noEmacs tests/obgroup || (echo "Test 'obgroup' failed: a VALID ORDER BY (grouped column / SUM-over-column aggregate -- the form the pre-#269 compiler rejected / ungrouped query) no longer typechecks (urweb/urweb#269)"; false)
 	@echo "==> [tc 8/8] obgroup_red  (#269: ungrouped ORDER BY column rejected)"
