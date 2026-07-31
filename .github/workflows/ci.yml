@@ -200,6 +200,10 @@ jobs:
         run: |
           set -euo pipefail
           chown -R coq:coq .
+          # shellcheck disable=SC2016
+          # The single quotes are DELIBERATE: $(opam env) must be evaluated by
+          # the `su coq` subshell (where the opam switch exists), not by this
+          # outer root shell, where it would expand to root's empty environment.
           su coq -c 'eval "$(opam env)" && make -C src/coq check' 2>&1 | tee /tmp/coq.log
 
           # (1) The KERNEL accepted the proof terms -- not merely "coqc exited 0",
