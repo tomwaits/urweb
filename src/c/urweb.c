@@ -4392,8 +4392,12 @@ int uw_commit(uw_context ctx) {
      commit callback may run SQL, which re-opens a transaction via
      uw_ensure_transaction. Left open, that BEGIN leaks past SERVED on the
      pooled connection. The callback ran to completion, so its writes were
-     intended: COMMIT them here -- BEFORE the delta send below, so we never
-     broadcast messages describing state that failed to become durable. */
+     intended: COMMIT them here -- BEFORE the delta send below, so the
+     durability attempt precedes the broadcast and the callback's transaction
+     does not hold row locks across it. NB the broadcast still proceeds if
+     this commit fails, which is correct: the deltas describe the MAIN
+     transaction, which is already durable; only the callback's extra SQL
+     failed, and that is reported to the requester. */
   if (ctx->app && ctx->transaction_started) {
     ctx->transaction_started = 0;
     if (ctx->app->db_commit(ctx))
