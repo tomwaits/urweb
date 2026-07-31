@@ -861,26 +861,39 @@ fun reduce' (file : file) =
 
                       | EField (e1, x) =>
                         let
-                            fun yankLets (e : exp) =
+                            (* [env'] must TRACK the lets we descend through: the purity
+                               test below inspects sibling fields, which may mention those
+                               binders, and simpleImpure resolves an ERel via
+                               E.lookupERel -- which raises UnboundRel (uncaught anywhere
+                               in the pipeline) when the index outruns the environment,
+                               and silently reads the WRONG binder's type when it does
+                               not.  Passing the outer [env] here crashed the compiler on
+                               valid input; see tests/yanklets. *)
+                            fun yankLets env' (e : exp) =
                                 case #1 e of
-                                    ELet (x, t, e1, e2) => (ELet (x, t, e1, yankLets e2), #2 e)
+                                    ELet (xl, t, e1, e2) =>
+                                    (ELet (xl, t, e1, yankLets (E.pushERel env' xl t NONE) e2), #2 e)
                                   | ERecord xes =>
                                     (* Projecting out of a literal record DISCARDS the
                                        other fields, so it is only sound when those
-                                       siblings are effect-free.  Unguarded (fork #6),
+                                       siblings are effect-free (fork #6): unguarded,
                                        `let r = {A = error <xml>boom</xml>, B = 2} in r.B`
-                                       silently lost the abort -- fail-closed became
-                                       fail-open, the same hazard as urweb/urweb#221. *)
+                                       drops the abort -- fail-closed becomes fail-open,
+                                       the urweb/urweb#221 hazard.  NB that exact shape is
+                                       not yet OBSERVABLE end to end: especialize discards
+                                       the argument earlier (fork #63).  This guard is the
+                                       precise one for the hazard and is inert on the
+                                       current corpus (0 of 216 apps change codegen). *)
                                     (case List.find (fn (x', _, _) => x' = x) xes of
                                          SOME (_, e', _) =>
-                                         if List.exists (fn (x', es, _) => x' <> x andalso impure env es) xes then
+                                         if List.exists (fn (x', es, _) => x' <> x andalso impure env' es) xes then
                                              (EField (e, x), #2 e)
                                          else
                                              e'
                                        | NONE => (EField (e, x), #2 e))
                                   | _ => (EField (e, x), #2 e)
                         in
-                            #1 (yankLets e1)
+                            #1 (yankLets env e1)
                         end
 
                       | ELet (x1, t1, (ELet (x2, t2, e1, b1), loc), b2) =>
