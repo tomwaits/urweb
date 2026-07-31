@@ -43,6 +43,11 @@ PROVED, mechanically, in Coq 8.19.2:
   preservation; the calculus has no operational semantics here, and terms are
   intrinsically typed, so there is no separate notion of a "stuck" term.
 
+Assumptions.expected is part of the TRUST BASE. A change to it must be reviewed
+as a change to what this development assumes -- regenerating it to clear a red
+`make check` is exactly how a lemma gets silently admitted, so `make check` also
+asserts the golden itself names no assumption but ext_eq.
+
 ASSUMED: functional extensionality (Axioms.ext_eq), and the -impredicative-set
 kernel flag, which the whole development is built with.  Impredicative Set is a
 non-default extension of Coq's kernel and is known to be inconsistent with
@@ -53,7 +58,7 @@ NOT PROVED -- do not cite this for any of the following.
 
   * The compiler.  There is no extraction and no refinement proof.  src/coq is
     not part of the build.  The model here has no formal connection to the
-    5,212-line elaborator (src/elaborate.sml), which is where disjointness is
+    ~5,200-line elaborator (src/elaborate.sml), which is where disjointness is
     actually decided -- with unification metavariables (CUnif), row guessing and
     CMap normalization that appear nowhere in this model.  disj here is
     DECLARATIVE and proved SOUND only; it is not proved complete, not proved
@@ -61,8 +66,8 @@ NOT PROVED -- do not cite this for any of the following.
     bug in that solver is not excluded by anything here.
 
   * Most of the language.  Absent from the model: the entire SQL layer
-    (sql_query, sql_exp, sql_table, sql_subset, sql_from_items and ~15 further
-    sql_* constructors); effects and concurrency (transaction, source, signal,
+    (sql_query, sql_exp, sql_table, sql_subset, sql_from_items and 14 further
+    sql_* constructors -- 19 in all); effects and concurrency (transaction, source, signal,
     channel); XML/XHTML; the module system (signatures, functors, CModProj);
     datatypes and pattern matching; type classes; kind polymorphism (KFun,
     CKAbs/CKApp); kind units and tuples (KUnit, KTuple); and general recursion

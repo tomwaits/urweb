@@ -27,6 +27,18 @@ check: coq
 	@# its own line when `name : type` is long, so a pattern-based guard silently
 	@# misses short-typed axioms and short Admitted statements.
 	diff -u Assumptions.expected assumptions.out
+	@# The golden is only as trustworthy as whoever last regenerated it, and
+	@# "CI is red -> regenerate the golden" is the natural reflex. Independently
+	@# assert that the GOLDEN ITSELF names no assumption but ext_eq, so clearing
+	@# a red diff that way still fails (measured: regenerating it turned an
+	@# Admitted name_eq_dec_refl, a short-typed Axiom, and -type-in-type from red
+	@# back to green). Purely conjunctive: it can only add failures, never mask
+	@# the diff above.
+	@names=$$(awk '/^Axioms:$$/{a=1;next} /^[A-Za-z][A-Za-z ]*:$$/{a=0} a&&/^[^[:space:]]/{print $$1}' Assumptions.expected | sort -u); \
+	  test "$$names" = "Axioms.ext_eq" \
+	    || { echo "FAILED: Assumptions.expected names an assumption other than Axioms.ext_eq:"; echo "$$names"; exit 1; }
+	@! grep -nE 'assumed to be (guarded|positive)|relies on an unsafe hierarchy' Assumptions.expected \
+	    || { echo "FAILED: Assumptions.expected records a disabled kernel check"; exit 1; }
 
 clean:: Makefile.coq
 	$(MAKE) -f Makefile.coq clean
