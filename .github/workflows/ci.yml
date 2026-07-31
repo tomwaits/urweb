@@ -20,15 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: cachix/install-nix-action@v27
+      - uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
 
       # Cache /nix/store across runs so the pinned nixpkgs (fetched by
       # default.nix) and the built compiler are not re-downloaded/rebuilt every
       # time. Fixes GitHub's HTTP 429 rate-limiting of the nixpkgs archive under
       # frequent CI, and makes CI dramatically faster (near-instant on cache hit).
-      - uses: nix-community/cache-nix-action@v5
+      - uses: nix-community/cache-nix-action@8351fb9f51c580c96c509987ebb99e38aed956ce # v5
         with:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('default.nix', 'derivation.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
@@ -186,7 +186,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
-      image: coqorg/coq:8.19.2
+      # Pinned by DIGEST, not tag: this container holds the Coq kernel that
+      # checks the type-soundness proof, so it is the one CI input whose
+      # identity the proof result depends on. A re-tagged 8.19.2 would change
+      # what "coqchk says yes" means. Bumping it must be a deliberate, reviewed
+      # edit -- `docker buildx imagetools inspect coqorg/coq:<tag>` prints the
+      # digest. (Postgres/MySQL below stay on floating major tags on purpose:
+      # they are subjects under test, where tracking real patch-level DB
+      # behaviour is the point, not a component the verdict's meaning rests on.)
+      image: coqorg/coq@sha256:a55fb135f8bd3faee1138d8babc15d833ef847143007f11c7ec392900976615b # 8.19.2
       # The image runs as the non-root `coq` user, which cannot write the
       # runner's workspace -- actions/checkout fails with EACCES (measured on
       # the first run of this job). Enter as root for checkout, then hand the
@@ -194,7 +202,7 @@ jobs:
       # Coq actually lives.
       options: --user root
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build, kernel-check, and assert the assumption set
         # Inside a container GitHub defaults to `sh -e {0}`, where `set -o
@@ -284,15 +292,15 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: cachix/install-nix-action@v27
+      - uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
 
       # Cache /nix/store across runs so the pinned nixpkgs (fetched by
       # default.nix) and the built compiler are not re-downloaded/rebuilt every
       # time. Fixes GitHub's HTTP 429 rate-limiting of the nixpkgs archive under
       # frequent CI, and makes CI dramatically faster (near-instant on cache hit).
-      - uses: nix-community/cache-nix-action@v5
+      - uses: nix-community/cache-nix-action@8351fb9f51c580c96c509987ebb99e38aed956ce # v5
         with:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('default.nix', 'derivation.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
@@ -644,7 +652,7 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install toolchain + MySQL client (Oracle libmysqlclient, not mariadb-compat)
         run: |
