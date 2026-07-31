@@ -28,4 +28,5 @@ fun check () : transaction page =
     r1 <- oneOrNoRows1 (SELECT t.Lbl FROM t WHERE t.Id = 1);
     r2 <- oneOrNoRows1 (SELECT t.Lbl FROM t WHERE t.Id = 2);
     ran <- Postcommitffi.okRan;
-    return <xml><body>CHECK:r1={[case r1 of None => "none" | Some r => r.Lbl]},r2={[case r2 of None => "none" | Some r => r.Lbl]},cb={[ran]}</body></xml>
+    n <- Postcommitffi.failFreeCount;
+    return <xml><body>CHECK:r1={[case r1 of None => "none" | Some r => r.Lbl]},r2={[case r2 of None => "none" | Some r => r.Lbl]},cb={[ran]},frees={[n]}</body></xml>
