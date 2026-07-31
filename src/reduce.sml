@@ -665,22 +665,7 @@ fun kindConAndExp (namedC, namedE) =
                                     (ERecord xcs, CName x) =>
                                     (case List.find (fn ((CName x', _), _, _) => x' = x | _ => false) xcs of
                                          NONE => default ()
-                                       (* Projecting out of a literal record DISCARDS the
-                                          other fields, so it is sound only when those
-                                          siblings are effect-free.  Unguarded, `{A = error
-                                          <xml>boom</xml>, B = 2}.B` silently lost the abort
-                                          -- fail-closed became fail-open (the urweb/urweb#221
-                                          hazard, here at the Core level; fork #6 reported the
-                                          same defect in mono_reduce's yankLets, which this
-                                          pass pre-empts for record literals).  NB: not yet
-                                          observable end-to-end -- especialize discards the
-                                          whole argument earlier (fork #63). *)
-                                       | SOME (_, e', _) =>
-                                         if List.all (fn ((CName x', _), es, _) => x' = x orelse passive es
-                                                       | (_, es, _) => passive es) xcs then
-                                             e'
-                                         else
-                                             default ())
+                                       | SOME (_, e, _) => e)
                                   | _ => default ()
                             end
 
