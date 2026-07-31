@@ -185,15 +185,22 @@ jobs:
     name: coq proof (type soundness)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    container: coqorg/coq:8.19.2
+    container:
+      image: coqorg/coq:8.19.2
+      # The image runs as the non-root `coq` user, which cannot write the
+      # runner's workspace -- actions/checkout fails with EACCES (measured on
+      # the first run of this job). Enter as root for checkout, then hand the
+      # tree to `coq` and build under that user's opam switch, which is where
+      # Coq actually lives.
+      options: --user root
     steps:
       - uses: actions/checkout@v4
 
       - name: Build, kernel-check, and assert the assumption set
         run: |
           set -euo pipefail
-          eval "$(opam env)"
-          make -C src/coq check 2>&1 | tee /tmp/coq.log
+          chown -R coq:coq .
+          su coq -c 'eval "$(opam env)" && make -C src/coq check' 2>&1 | tee /tmp/coq.log
 
           # (1) The KERNEL accepted the proof terms -- not merely "coqc exited 0",
           #     which only says the tactics ran.
