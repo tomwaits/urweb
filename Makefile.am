@@ -381,6 +381,18 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	printf 'val v = "LIBV2"\n' > $(DCACHEDIR)/mylib/src.ur
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a LIBRARY source edit hit the cache -- stale-serve (urweb/urweb#133)"; false)
 	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV2') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: the library-edit recompile did not produce a fresh exe -- fork issue #60 regressed (ModDb id staleness)"; false)
+	@# #60 defect 3 (the racy-mtime TOCTOU, deterministic): edit the library
+	@# again but FORCE the file's mtime back to the compiled version's second
+	@# (touch -r against a saved reference), simulating two saves within one
+	@# second. tm equality then holds, so only the insert-time Racy smudge can
+	@# prevent ModDb serving the stale elaboration -- pre-fix this produced a
+	@# WRONG exe with exit 0, which the output cache then pinned forever.
+	cp -p $(DCACHEDIR)/mylib/src.ur $(DCACHEDIR)/mylib/.src.stamp
+	printf 'val v = "LIBV3"\n' > $(DCACHEDIR)/mylib/src.ur
+	touch -r $(DCACHEDIR)/mylib/.src.stamp $(DCACHEDIR)/mylib/src.ur
+	sleep 2
+	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a same-mtime content edit hit the OUTPUT cache -- content hashing regressed (urweb/urweb#133)"; false)
+	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV3') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a SAME-SECOND library edit was served stale by the incremental elaborator -- the fork issue #60 racy-mtime (Racy smudge) fix regressed"; false)
 	-cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop
 	@# Query-DSL regression guard: typecheck fixtures exercising the SQL type
 	@# layer (sql_query / sql_order_by / aggregates), which no CI step covered
