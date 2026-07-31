@@ -447,14 +447,14 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# second. tm equality then holds, so only the insert-time Racy smudge can
 	@# prevent ModDb serving the stale elaboration -- pre-fix this produced a
 	@# WRONG exe with exit 0, which the output cache then pinned forever.
-	cp -p $(DCACHEDIR)/mylib/src.ur $(DCACHEDIR)/mylib/.src.stamp
-	printf 'val v = "LIBV3"\n' > $(DCACHEDIR)/mylib/src.ur
-	touch -r $(DCACHEDIR)/mylib/.src.stamp $(DCACHEDIR)/mylib/src.ur
 	@# NOT a startup race -- this gap IS the red pin, and must not become a
 	@# readiness poll.  mod_db.sml's racyFresh (tm + 1s >= now) has to be
 	@# evaluated at INSERT; a lookup-time check goes false after 1s and would
 	@# trust the stale entry.  Without the gap both implementations pass and
 	@# the test loses its discriminating power (fork #60).
+	cp -p $(DCACHEDIR)/mylib/src.ur $(DCACHEDIR)/mylib/.src.stamp
+	printf 'val v = "LIBV3"\n' > $(DCACHEDIR)/mylib/src.ur
+	touch -r $(DCACHEDIR)/mylib/.src.stamp $(DCACHEDIR)/mylib/src.ur
 	sleep 2
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a same-mtime content edit hit the OUTPUT cache -- content hashing regressed (urweb/urweb#133)"; false)
 	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV3') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a SAME-SECOND library edit was served stale by the incremental elaborator -- the fork issue #60 racy-mtime (Racy smudge) fix regressed"; false)
