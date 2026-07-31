@@ -197,6 +197,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build, kernel-check, and assert the assumption set
+        # Inside a container GitHub defaults to `sh -e {0}`, where `set -o
+        # pipefail` is an illegal option (measured: "1: set: Illegal option -o
+        # pipefail", exit 2). We rely on pipefail because the build is piped
+        # through tee, so ask for bash explicitly -- the image is Debian-based
+        # and has it.
+        shell: bash
         run: |
           set -euo pipefail
           chown -R coq:coq .
