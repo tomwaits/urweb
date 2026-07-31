@@ -1,28 +1,75 @@
-This is a Coq formalization of a simplified version of the Ur programming
-language, and a machine-checked proof of its core soundness properties.
+A Coq formalization of a simplified version of the Ur programming language,
+with a machine-checked proof of its core soundness properties.
 
-What is proved (Semantics.v), against a denotational semantics (cDen/eDen):
-
-  subs_correct      substitution is meaning-preserving
-  deq_correct       the type-equality judgment is sound
-  disj_correct      the row-DISJOINTNESS judgment is sound
-  cut_disjoint      cutting a name out of a disjoint row preserves disjointness
-  name_eq_dec_refl  decidable name equality is reflexive on the nose
-
-Disjointness is the load-bearing one for Ur's record calculus: it is what makes
-a `[fs1 ~ fs2]` constraint mean anything, i.e. what rules out two field sets
-silently aliasing.
-
-Assumptions: exactly one axiom, `ext_eq` (functional extensionality, Axioms.v).
-No `Admitted`, no `admit`.
-
-Build and kernel-check:
+Build and check:
 
   make          # coqc via coq_makefile
-  make check    # coqchk -- re-checks the proof terms in Coq's trusted kernel,
-                # independently of the tactic engine
+  make check    # coqchk (re-checks the proof TERMS in Coq's trusted kernel,
+                # independently of the tactic engine) + Assumptions.v, which
+                # pins the theorem STATEMENTS and diffs the axiom report
+                # against the Assumptions.expected golden
 
-Tested with Coq 8.19.2. (It was previously pinned to 8.3pl2 from 2011 and had
-been unbuildable for about a decade; reviving it needed one tactic rename,
-`elimtype False` -> `exfalso`.) CI builds AND kernel-checks it on every push,
-so it cannot silently rot again.
+CI runs `make check` on every push, so this cannot silently rot again. It was
+previously pinned to Coq 8.3pl2 (2011) and had been unbuildable for about a
+decade; reviving it needed one tactic rename, `elimtype False` -> `exfalso`.
+Tested with Coq 8.19.2.
+
+SCOPE -- what a reader may and may not conclude.
+
+This is a formalization of "Featherweight Ur": a core calculus, not the
+language the compiler implements, and not the compiler.
+
+PROVED, mechanically, in Coq 8.19.2:
+
+  A denotational model (cDen/eDen) of a PHOAS-encoded calculus with four kinds
+  (Type, Name, k -> k, {k}), type-level records with concatenation, singletons
+  and map, a declarative type-equality judgment (deq), a declarative row-
+  disjointness judgment (disj), and guarded types.  Against that model:
+
+    subs_correct      substitution is meaning-preserving
+    deq_correct       deq is sound: derivable equality implies equal denotations
+    disj_correct      disj is sound: a derivable [fs1 ~ fs2] implies the two
+                      rows never map the same name to Some
+    cut_disjoint      cutting a name out of a disjoint row preserves disjointness
+    name_eq_dec_refl  decidable name equality is reflexive on the nose
+
+  and, load-bearing, the interpreter
+
+    eDen : forall t, exp dvar tDen t -> tDen t
+
+  is DEFINABLE as a total Coq function.  That is the soundness statement: every
+  well-typed Featherweight-Ur term denotes a value of its denoted type.  This is
+  semantic soundness via a definitional interpreter, not progress-and-
+  preservation; the calculus has no operational semantics here, and terms are
+  intrinsically typed, so there is no separate notion of a "stuck" term.
+
+ASSUMED: functional extensionality (Axioms.ext_eq), and the -impredicative-set
+kernel flag, which the whole development is built with.  Impredicative Set is a
+non-default extension of Coq's kernel and is known to be inconsistent with
+classical excluded middle plus choice, so no classical axiom may ever be added
+here.  Nothing else: zero Admitted, zero admit.
+
+NOT PROVED -- do not cite this for any of the following.
+
+  * The compiler.  There is no extraction and no refinement proof.  src/coq is
+    not part of the build.  The model here has no formal connection to the
+    5,212-line elaborator (src/elaborate.sml), which is where disjointness is
+    actually decided -- with unification metavariables (CUnif), row guessing and
+    CMap normalization that appear nowhere in this model.  disj here is
+    DECLARATIVE and proved SOUND only; it is not proved complete, not proved
+    decidable, and the compiler's algorithm is not proved to implement it.  A
+    bug in that solver is not excluded by anything here.
+
+  * Most of the language.  Absent from the model: the entire SQL layer
+    (sql_query, sql_exp, sql_table, sql_subset, sql_from_items and ~15 further
+    sql_* constructors); effects and concurrency (transaction, source, signal,
+    channel); XML/XHTML; the module system (signatures, functors, CModProj);
+    datatypes and pattern matching; type classes; kind polymorphism (KFun,
+    CKAbs/CKApp); kind units and tuples (KUnit, KTuple); and general recursion
+    (val rec / EDValRec) -- which this model structurally cannot host, because
+    eDen is a total structurally-recursive Coq function and the real language
+    is Turing-complete.
+
+  * Anything about information flow.  disj_correct is record-field non-aliasing
+    inside the model.  It is not unlinkability, not secrecy, not
+    noninterference, and it says nothing about UrFlow.

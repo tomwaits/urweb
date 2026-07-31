@@ -212,34 +212,38 @@ jobs:
           # outer root shell, where it would expand to root's empty environment.
           su coq -c 'eval "$(opam env)" && make -C src/coq check' 2>&1 | tee /tmp/coq.log
 
+          # (0) No kernel typing check may be disabled: coqchk does NOT re-verify
+          #     constants compiled with these off, so `Unset Guard Checking` +
+          #     a looping Fixpoint yields a real proof of False that the kernel
+          #     check still reports as successful (measured).
+          if grep -nE 'Unset[[:space:]]+(Universe|Guard|Positivity)[[:space:]]+Checking|bypass_check' src/coq/*.v; then
+            echo "COQ FAILED: a kernel typing check is disabled in src/coq"; exit 1
+          fi
+
           # (1) The KERNEL accepted the proof terms -- not merely "coqc exited 0",
           #     which only says the tactics ran.
           grep -q 'Modules were successfully checked' /tmp/coq.log \
             || { echo "COQ FAILED: coqchk did not report a successful kernel check"; exit 1; }
 
-          # (2) Anti-vacuity: every theorem we claim must actually appear in the
-          #     kernel's checked list. A silently-empty check would otherwise pass (1).
-          for t in subs_correct deq_correct disj_correct cut_disjoint name_eq_dec_refl; do
-            grep -q "cst:Top.Semantics.$t" /tmp/coq.log \
-              || { echo "COQ FAILED: theorem $t was not kernel-checked -- the proof shrank or was renamed"; exit 1; }
+          # (2) Anti-vacuity: every result we claim must appear in the kernel's
+          #     checked list -- INCLUDING cDen and eDen. eDen is the soundness
+          #     statement itself (the interpreter is total); the five lemmas are
+          #     its supporting cast, and a list without it let the entire
+          #     expression language be deleted with CI green (measured).
+          #     Names are anchored to avoid prefix collisions.
+          for t in subs_correct deq_correct disj_correct cut_disjoint \
+                   name_eq_dec_refl cDen eDen; do
+            grep -qE "cst:Top\.Semantics\.$t\$" /tmp/coq.log \
+              || { echo "COQ FAILED: $t was not kernel-checked -- the proof shrank or was renamed"; exit 1; }
           done
 
-          # (3) Assumption guard: functional extensionality is the ONLY axiom the
-          #     proofs may rest on. An `Admitted` lemma shows up in this output as
-          #     an axiom, so this also catches a proof quietly downgraded to admit.
-          # `Print Assumptions` prints each axiom's NAME alone on an unindented
-          # line (its type follows, indented), so that is what we match. An
-          # Admitted theorem is reported as an axiom named after itself, which is
-          # exactly how this catches a proof downgraded to admit. Verified in both
-          # directions before being trusted: silent on the real tree, and it does
-          # fire when cut_disjoint is deliberately Admitted.
-          grep -q '^Axioms\.ext_eq$' /tmp/coq.log \
-            || { echo "COQ FAILED: ext_eq absent from the assumption report -- did Print Assumptions run at all?"; exit 1; }
-          if grep -E '^[A-Za-z_][A-Za-z0-9_.'"'"']*$' /tmp/coq.log | grep -v '^Axioms\.ext_eq$' | grep -q .; then
-            echo "COQ FAILED: an assumption other than ext_eq appeared (new axiom, or a lemma left Admitted):"
-            grep -E '^[A-Za-z_][A-Za-z0-9_.'"'"']*$' /tmp/coq.log | grep -v '^Axioms\.ext_eq$' | sort -u
-            exit 1
-          fi
+          # (3) The assumption set AND the theorem statements are checked by
+          #     `make check` itself (statement pins + an exact golden diff of the
+          #     Print Assumptions output), so the gate means the same thing on a
+          #     laptop as it does here. A regex was tried first and FAILED OPEN:
+          #     Coq only wraps an assumption's name onto its own line when the
+          #     type is long, so short-typed axioms and short Admitted statements
+          #     slipped past it.
           echo "coq-proof: PASS (kernel-checked; 5 theorems; sole axiom = ext_eq)"
 
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
