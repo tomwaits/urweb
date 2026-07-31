@@ -173,6 +173,79 @@ jobs:
             || { echo "timeOfDay FAILED: time round trip broke on SQLite: $out"; exit 1; }
           echo "sqlite timeOfDay-integration: PASS"
 
+  # Machine-checked type soundness. src/coq is Ur/Web's own Coq formalization:
+  # a denotational semantics plus soundness theorems for substitution, type
+  # equality, and -- the load-bearing one for the record calculus -- ROW
+  # DISJOINTNESS, which is what makes a `[fs1 ~ fs2]` constraint mean anything.
+  # It was pinned to Coq 8.3pl2 (2011) and had been unbuildable for ~a decade,
+  # so nobody could re-check it. This job builds it, KERNEL-checks it (coqchk,
+  # independent of the tactic engine), and asserts the axiom set, so it cannot
+  # silently rot again.
+  coq-proof:
+    name: coq proof (type soundness)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: coqorg/coq:8.19.2
+      # The image runs as the non-root `coq` user, which cannot write the
+      # runner's workspace -- actions/checkout fails with EACCES (measured on
+      # the first run of this job). Enter as root for checkout, then hand the
+      # tree to `coq` and build under that user's opam switch, which is where
+      # Coq actually lives.
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build, kernel-check, and assert the assumption set
+        # Inside a container GitHub defaults to `sh -e {0}`, where `set -o
+        # pipefail` is an illegal option (measured: "1: set: Illegal option -o
+        # pipefail", exit 2). We rely on pipefail because the build is piped
+        # through tee, so ask for bash explicitly -- the image is Debian-based
+        # and has it.
+        shell: bash
+        run: |
+          set -euo pipefail
+          chown -R coq:coq .
+          # shellcheck disable=SC2016
+          # The single quotes are DELIBERATE: $(opam env) must be evaluated by
+          # the `su coq` subshell (where the opam switch exists), not by this
+          # outer root shell, where it would expand to root's empty environment.
+          su coq -c 'eval "$(opam env)" && make -C src/coq check' 2>&1 | tee /tmp/coq.log
+
+          # (0) No kernel typing check may be disabled: coqchk does NOT re-verify
+          #     constants compiled with these off, so `Unset Guard Checking` +
+          #     a looping Fixpoint yields a real proof of False that the kernel
+          #     check still reports as successful (measured).
+          if grep -nE 'Unset[[:space:]]+(Universe|Guard|Positivity)[[:space:]]+Checking|bypass_check' src/coq/*.v; then
+            echo "COQ FAILED: a kernel typing check is disabled in src/coq"; exit 1
+          fi
+
+          # (1) The KERNEL accepted the proof terms -- not merely "coqc exited 0",
+          #     which only says the tactics ran.
+          grep -q 'Modules were successfully checked' /tmp/coq.log \
+            || { echo "COQ FAILED: coqchk did not report a successful kernel check"; exit 1; }
+
+          # (2) Anti-vacuity: every result we claim must appear in the kernel's
+          #     checked list -- INCLUDING cDen and eDen. eDen is the soundness
+          #     statement itself (the interpreter is total); the five lemmas are
+          #     its supporting cast, and a list without it let the entire
+          #     expression language be deleted with CI green (measured).
+          #     Names are anchored to avoid prefix collisions.
+          for t in subs_correct deq_correct disj_correct cut_disjoint \
+                   name_eq_dec_refl cDen eDen; do
+            grep -qE "cst:Top\.Semantics\.$t\$" /tmp/coq.log \
+              || { echo "COQ FAILED: $t was not kernel-checked -- the proof shrank or was renamed"; exit 1; }
+          done
+
+          # (3) The assumption set AND the theorem statements are checked by
+          #     `make check` itself (statement pins + an exact golden diff of the
+          #     Print Assumptions output), so the gate means the same thing on a
+          #     laptop as it does here. A regex was tried first and FAILED OPEN:
+          #     Coq only wraps an assumption's name onto its own line when the
+          #     type is long, so short-typed axioms and short Admitted statements
+          #     slipped past it.
+          echo "coq-proof: PASS (kernel-checked; 5 theorems; sole axiom = ext_eq)"
+
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
   # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
   # the startup schema-structure check (#230), timestamp handling (#163), the

@@ -1,0 +1,28 @@
+Axioms:
+Axioms.ext_eq
+  : forall (dom : Type) (ran : dom -> Type) (f g : forall x : dom, ran x),
+    (forall x : dom, f x = g x) -> f = g
+Theory:
+Set is impredicative
+Axioms:
+Axioms.ext_eq
+  : forall (dom : Type) (ran : dom -> Type) (f g : forall x : dom, ran x),
+    (forall x : dom, f x = g x) -> f = g
+Theory:
+Set is impredicative
+Axioms:
+Axioms.ext_eq
+  : forall (dom : Type) (ran : dom -> Type) (f g : forall x : dom, ran x),
+    (forall x : dom, f x = g x) -> f = g
+Theory:
+Set is impredicative
+Theory:
+Set is impredicative
+Theory:
+Set is impredicative
+Axioms:
+Axioms.ext_eq
+  : forall (dom : Type) (ran : dom -> Type) (f g : forall x : dom, ran x),
+    (forall x : dom, f x = g x) -> f = g
+Theory:
+Set is impredicative

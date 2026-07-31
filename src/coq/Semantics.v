@@ -149,7 +149,7 @@ Theorem name_eq_dec_refl : forall n, name_eq_dec n n = left _ (refl_equal n).
     match goal with
     | [ e : _ = _ |- _ ] => rewrite (UIP_dec name_eq_dec e (refl_equal _)); reflexivity
     end
-  | elimtype False; tauto
+  | exfalso; tauto
   ].
 Qed.
 

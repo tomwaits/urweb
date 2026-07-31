@@ -1,2 +1,5 @@
+# NB: `make` does NOT read this file -- the Makefile passes the flags to
+# coq_makefile directly. It exists for IDEs (coqide/vscoq/Proof General) and
+# must be kept in sync with the Makefile's coq_makefile invocation by hand.
 -arg -impredicative-set
 -R . Top
