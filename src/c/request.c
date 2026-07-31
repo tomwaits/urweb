@@ -519,7 +519,15 @@ request_result uw_request(uw_request_context rc, uw_context ctx,
     }
 
     if (fk == SUCCESS || fk == RETURN_INDIRECTLY) {
-      uw_commit(ctx);
+      if (uw_commit(ctx)) {
+        /* COMMIT-time serialization failure (urweb/urweb fork #7): the return
+           value used to be discarded, serving the page as if committed -- a
+           silent lost update. uw_commit already rolled its transactionals
+           back (will_retry = 1) and cleared the list, so falling through to
+           the loop tail's try_rollback + reset is safe and re-runs the
+           request, exactly like an in-handler UNLIMITED_RETRY. */
+        log_debug(logger_data, "Commit-time serialization failure; retrying transaction\n");
+      } else {
       if (uw_has_error(ctx) && !had_error) {
         log_error(logger_data, "Fatal error: %s\n", uw_error_message(ctx));
         uw_reset_keep_error_message(ctx);
@@ -544,6 +552,7 @@ request_result uw_request(uw_request_context rc, uw_context ctx,
       } else {
         uw_transaction_departs();
         return had_error ? FAILED : SERVED;
+      }
       }
     } else if (fk == BOUNDED_RETRY) {
       if (retries_left) {

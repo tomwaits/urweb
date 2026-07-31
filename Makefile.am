@@ -341,9 +341,12 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	sleep 1
 	kill -0 `cat $(TESTPID)` || (echo "Test 'postcommit' failed: the freshly started server is not running (stale process on :8090?)"; false)
 	(curl -s 'http://localhost:8090/Postcommit/ok' | grep -q 'OK_ARMED') || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: the successful post-COMMIT transactional request did not serve (urweb/urweb#273)"; false)
-	(curl -s 'http://localhost:8090/Postcommit/fail' | grep -q 'POSTCOMMIT_FAILURE_MARKER') || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: a failing post-COMMIT commit callback did not surface its error message (urweb/urweb#273)"; false)
-	(! (curl -s 'http://localhost:8090/Postcommit/fail' | grep -q 'FAIL_BODY_MUST_NOT_RENDER')) || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: the page body rendered despite the post-COMMIT callback failure (urweb/urweb#273)"; false)
-	(curl -s 'http://localhost:8090/Postcommit/check' | grep -q 'CHECK:r1=okrow,r2=failrow,cb=True') || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: post-COMMIT contract broken -- expected both rows durable (no bogus ROLLBACK), the ok callback run, and a live server (urweb/urweb#273 / #110)"; false)
+	@# One fetch, two asserts: each /fail request arms+frees one transactional,
+	@# and the free-exactly-once count below must stay exactly 1.
+	curl -s 'http://localhost:8090/Postcommit/fail' > /tmp/urweb.pc.fail
+	(grep -q 'POSTCOMMIT_FAILURE_MARKER' /tmp/urweb.pc.fail) || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: a failing post-COMMIT commit callback did not surface its error message (urweb/urweb#273)"; false)
+	(! grep -q 'FAIL_BODY_MUST_NOT_RENDER' /tmp/urweb.pc.fail) || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: the page body rendered despite the post-COMMIT callback failure (urweb/urweb#273)"; false)
+	(curl -s 'http://localhost:8090/Postcommit/check' | grep -q 'CHECK:r1=okrow,r2=failrow,cb=True,frees=1') || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: post-COMMIT contract broken -- rows durable + ok callback + server alive + free-EXACTLY-ONCE on the failing transactional (fork #7: pre-fix the free fired twice)"; false)
 	kill `cat $(TESTPID)`
 	@# urweb/urweb#133: the compile daemon's whole-output cache. An unchanged
 	@# project must be a cache hit (the marker line, near-instant); a CONTENT

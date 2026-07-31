@@ -4241,6 +4241,8 @@ int uw_rollback(uw_context ctx, int will_retry) {
     if (ctx->transactionals[i].free)
       ctx->transactionals[i].free(ctx->transactionals[i].data, will_retry);
 
+  ctx->used_transactionals = 0; /* consumed; a second uw_rollback is a no-op (fork #7) */
+
   if (ctx->app && ctx->transaction_started) {
     ctx->transaction_started = 0;
     return ctx->app->db_rollback(ctx);
@@ -4322,12 +4324,19 @@ int uw_commit(uw_context ctx) {
           if (ctx->transactionals[i].free)
             ctx->transactionals[i].free(ctx->transactionals[i].data, 1);
 
+        /* The list is consumed (urweb/urweb fork #7): a later uw_rollback on
+           this context (request.c's retry plumbing, uw_initialize, raw C-API
+           embedders) must not fire rollback/free a second time. */
+        ctx->used_transactionals = 0;
+
         return 1;
       }
 
       for (i = ctx->used_transactionals-1; i >= 0; --i)
         if (ctx->transactionals[i].free)
           ctx->transactionals[i].free(ctx->transactionals[i].data, 0);
+
+      ctx->used_transactionals = 0; /* consumed; see fork #7 */
 
       uw_set_error_message(ctx, "Error running SQL COMMIT");
       return 0;
@@ -4355,6 +4364,11 @@ int uw_commit(uw_context ctx) {
             if (ctx->transactionals[i].free)
               ctx->transactionals[i].free(ctx->transactionals[i].data, 0);
 
+          /* Consumed (fork #7): request.c's error handling follows this
+             return with try_rollback -> uw_rollback, which previously
+             re-fired rollback+free over the already-freed list. */
+          ctx->used_transactionals = 0;
+
           return 0;
         }
       }
@@ -4377,6 +4391,19 @@ int uw_commit(uw_context ctx) {
   for (i = ctx->used_transactionals-1; i >= 0; --i)
     if (ctx->transactionals[i].free)
       ctx->transactionals[i].free(ctx->transactionals[i].data, 0);
+
+  ctx->used_transactionals = 0; /* consumed; see fork #7 */
+
+  /* fork #7 (related defect): a post-COMMIT (NULL-rollback) transactional's
+     commit callback may run SQL, which re-opens a transaction via
+     uw_ensure_transaction. Left open, that BEGIN leaks past SERVED on the
+     pooled connection. The callback ran to completion, so its writes were
+     intended: COMMIT them; surface a failure as the request's error. */
+  if (ctx->app && ctx->transaction_started) {
+    ctx->transaction_started = 0;
+    if (ctx->app->db_commit(ctx))
+      uw_set_error_message(ctx, "Error committing SQL issued by a post-commit transactional callback");
+  }
 
   uw_check(ctx, 1);
   *ctx->page.front = 0;
@@ -4692,7 +4719,7 @@ uw_Basis_string uw_Basis_blessEnvVar(uw_context ctx, uw_Basis_string s) {
 }
 
 uw_Basis_string uw_Basis_checkEnvVar(uw_context ctx, uw_Basis_string s) {
-  if (!mime_format(s))
+  if (!envVar_format(s))
     return NULL;
 
   if (ctx->app->check_envVar(s))

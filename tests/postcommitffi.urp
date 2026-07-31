@@ -4,3 +4,4 @@ link postcommitffi.o
 effectful Postcommitffi.armOk
 effectful Postcommitffi.armFail
 effectful Postcommitffi.okRan
+effectful Postcommitffi.failFreeCount
