@@ -228,6 +228,12 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# where the guard runs, so a typecheck-only gate would be vacuous. yk3 is the
 	@# two-let control (it never crashed; it silently read the wrong binder) and
 	@# exists to stop anyone simplifying yk2 down and losing the coverage.
+	@# fork #17: the sql_table diff must reach STDERR like every other
+	@# diagnostic. stdout is DISCARDED here, so this greps stderr only --
+	@# which is precisely what fails on the pre-fix compiler, where the diff
+	@# went to stdout and vanished from a `2>` capture.
+	@echo "==> [stream] errstream (table diff goes to stderr, not stdout, #17)"
+	(bin/urweb -tc -boot -noEmacs tests/errstream 2>&1 >/dev/null | grep -q 'Found problem in table') || (echo "Test 'errstream' failed: the sql_table diff did not reach stderr -- it is on stdout again and is lost by a 2> capture (fork #17)"; false)
 	@echo "==> [crash] yk2/yk3  (yankLets environment; must COMPILE, not raise UnboundRel)"
 	bin/urweb -boot -noEmacs -ccopt -O1 tests/yk2 || (echo "Test 'yk2' failed: the yankLets sibling-purity guard raised UnboundRel (or otherwise failed to compile) -- it is consulting the wrong de Bruijn environment again"; false)
 	bin/urweb -boot -noEmacs -ccopt -O1 tests/yk3 || (echo "Test 'yk3' failed: the two-let control no longer compiles"; false)

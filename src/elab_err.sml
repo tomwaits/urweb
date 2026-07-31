@@ -69,22 +69,15 @@ fun kunifyError env err =
         [("Kind 1", p_kind env k1),
          ("Kind 2", p_kind env k2)]
 
-(* ElabOps.reduceCon raises Fail on a constructor it cannot normalize
- * ("reduceCon: Unknown substructure" / "...Unknown con in structure",
- * elab_ops.sml).  Every call below is on the ERROR-REPORTING path, where an
- * escaping exception turns a clean, actionable type error into a compiler
- * crash -- the user loses the diagnostic entirely, which for a type-carried
- * security property is the worst possible failure mode.  Normalization is a
- * PRESENTATION nicety here: when it fails, the un-normalized constructor is
- * still correct and still useful, so degrade to it.
- *
- * Total and pure: returns NONE only for the documented Fail, so any other
- * exception still propagates rather than being silently swallowed (we do not
- * mask what we do not understand). *)
-fun reduceConOpt env c = SOME (ElabOps.reduceCon env c) handle Fail _ => NONE
-
+(* Every call below is on the ERROR-REPORTING path, where an escaping exception
+ * turns a clean, actionable type error into a compiler crash -- the user loses
+ * the diagnostic entirely, which for a type-carried security property is the
+ * worst available failure mode.  ElabOps.reduceConOpt is the total variant;
+ * see its definition for the enumerated exception set (it is NOT only `Fail`,
+ * and reduceCon is NOT pure -- it bumps rewrite counters -- so no purity is
+ * claimed here). *)
 fun p_con env c =
-    case reduceConOpt env c of
+    case ElabOps.reduceConOpt env c of
         SOME c' => P.p_con env c'
       (* Not silent: say the form is un-normalized, so a reader is not misled
          into thinking this is the reduced type. *)
@@ -211,7 +204,7 @@ datatype exp_error =
 val simplExp = U.Exp.mapB {kind = fn _ => fn k => k,
                            (* Error path: fall back to the un-normalized con rather
                               than letting reduceCon's Fail escape (fork #17). *)
-                           con = fn env => fn c => (case reduceConOpt env (c, ErrorMsg.dummySpan) of
+                           con = fn env => fn c => (case ElabOps.reduceConOpt env (c, ErrorMsg.dummySpan) of
                                                         SOME c' => #1 c'
                                                       | NONE => c),
                            exp = fn _ => fn e => e,
@@ -417,11 +410,11 @@ fun findTableForCunifsError (env: ElabEnv.env) (ds: Elab.decl list) =
                 (* Both reductions are best-effort: this arm only ADDS a friendlier
                    table-diff diagnostic, so on failure we fall through to the
                    generic message rather than crashing (fork #17). *)
-                => (case Option.map #1 (reduceConOpt env actualTable) of
+                => (case Option.map #1 (ElabOps.reduceConOpt env actualTable) of
                         SOME (CConcat
                             ( (actualFields, _)
                             , (CUnif _, _))) =>
-                        (case Option.map #1 (reduceConOpt env expectedTable) of
+                        (case Option.map #1 (ElabOps.reduceConOpt env expectedTable) of
                              SOME (CApp
                                  ((CApp
                                        (( CModProj (_, _, "sql_table"), _)
