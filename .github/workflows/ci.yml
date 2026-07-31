@@ -173,6 +173,58 @@ jobs:
             || { echo "timeOfDay FAILED: time round trip broke on SQLite: $out"; exit 1; }
           echo "sqlite timeOfDay-integration: PASS"
 
+  # Machine-checked type soundness. src/coq is Ur/Web's own Coq formalization:
+  # a denotational semantics plus soundness theorems for substitution, type
+  # equality, and -- the load-bearing one for the record calculus -- ROW
+  # DISJOINTNESS, which is what makes a `[fs1 ~ fs2]` constraint mean anything.
+  # It was pinned to Coq 8.3pl2 (2011) and had been unbuildable for ~a decade,
+  # so nobody could re-check it. This job builds it, KERNEL-checks it (coqchk,
+  # independent of the tactic engine), and asserts the axiom set, so it cannot
+  # silently rot again.
+  coq-proof:
+    name: coq proof (type soundness)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: coqorg/coq:8.19.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build, kernel-check, and assert the assumption set
+        run: |
+          set -euo pipefail
+          eval "$(opam env)"
+          make -C src/coq check 2>&1 | tee /tmp/coq.log
+
+          # (1) The KERNEL accepted the proof terms -- not merely "coqc exited 0",
+          #     which only says the tactics ran.
+          grep -q 'Modules were successfully checked' /tmp/coq.log \
+            || { echo "COQ FAILED: coqchk did not report a successful kernel check"; exit 1; }
+
+          # (2) Anti-vacuity: every theorem we claim must actually appear in the
+          #     kernel's checked list. A silently-empty check would otherwise pass (1).
+          for t in subs_correct deq_correct disj_correct cut_disjoint name_eq_dec_refl; do
+            grep -q "cst:Top.Semantics.$t" /tmp/coq.log \
+              || { echo "COQ FAILED: theorem $t was not kernel-checked -- the proof shrank or was renamed"; exit 1; }
+          done
+
+          # (3) Assumption guard: functional extensionality is the ONLY axiom the
+          #     proofs may rest on. An `Admitted` lemma shows up in this output as
+          #     an axiom, so this also catches a proof quietly downgraded to admit.
+          # `Print Assumptions` prints each axiom's NAME alone on an unindented
+          # line (its type follows, indented), so that is what we match. An
+          # Admitted theorem is reported as an axiom named after itself, which is
+          # exactly how this catches a proof downgraded to admit. Verified in both
+          # directions before being trusted: silent on the real tree, and it does
+          # fire when cut_disjoint is deliberately Admitted.
+          grep -q '^Axioms\.ext_eq$' /tmp/coq.log \
+            || { echo "COQ FAILED: ext_eq absent from the assumption report -- did Print Assumptions run at all?"; exit 1; }
+          if grep -E '^[A-Za-z_][A-Za-z0-9_.'"'"']*$' /tmp/coq.log | grep -v '^Axioms\.ext_eq$' | grep -q .; then
+            echo "COQ FAILED: an assumption other than ext_eq appeared (new axiom, or a lemma left Admitted):"
+            grep -E '^[A-Za-z_][A-Za-z0-9_.'"'"']*$' /tmp/coq.log | grep -v '^Axioms\.ext_eq$' | sort -u
+            exit 1
+          fi
+          echo "coq-proof: PASS (kernel-checked; 5 theorems; sole axiom = ext_eq)"
+
   # Postgres RUNTIME integration. The nix-build job compiles + tests only on
   # sqlite (no network in the nix sandbox), so the Postgres codegen paths --
   # the startup schema-structure check (#230), timestamp handling (#163), the
