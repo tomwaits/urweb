@@ -41,6 +41,11 @@ signature ELAB_OPS = sig
 
     val hnormCon : ElabEnv.env -> Elab.con -> Elab.con
     val reduceCon : ElabEnv.env -> Elab.con -> Elab.con
+    (* Total variant for ERROR-REPORTING paths: NONE instead of an escaping
+       exception, so a diagnostic can degrade to the un-normalized constructor
+       rather than crashing the compiler mid-report. See reduceConOpt's
+       definition for the enumerated exception set and why it is that set. *)
+    val reduceConOpt : ElabEnv.env -> Elab.con -> Elab.con option
     val consEqSimple: ElabEnv.env -> (Elab.con * Elab.con) -> bool
 
     val identity : int ref

@@ -533,6 +533,27 @@ fun reduceCon env (cAll as (c, loc)) =
       | CUnif (nl, _, _, _, ref (Known c)) => reduceCon env (E.mliftConInCon nl c)
       | CUnif _ => cAll
 
+(* Normalization is a PRESENTATION nicety on error-reporting paths: when it
+ * fails there, the un-normalized constructor is still correct and still
+ * useful, whereas an escaping exception destroys the diagnostic the user
+ * actually needs.  The handled set mirrors ElabPrint.p_con's own handlers
+ * (elab_print.sml), which upstream already hardened against precisely these:
+ *   Fail          - reduceCon / hnormSgn / kindof panics (a string-typed panic
+ *                   used throughout the elaborator)
+ *   UnboundNamed  - a constructor naming something from a foreign environment
+ *   UnboundRel    - ditto, de Bruijn
+ *   Subscript     - List.nth on an ill-kinded CProj; ill-kinded cons DO reach
+ *                   the normalizer, since elaborate.sml returns the projection
+ *                   even when checkKind rejected its index
+ * Deliberately NOT `handle _`: anything outside this set is a bug we want to
+ * see, not mask. *)
+fun reduceConOpt env c =
+    SOME (reduceCon env c)
+    handle Fail _                 => NONE
+         | ElabEnv.UnboundNamed _ => NONE
+         | ElabEnv.UnboundRel _   => NONE
+         | Subscript              => NONE
+
 val consEqSimple =
     let
         fun ces env (c1 : con, c2 : con) =

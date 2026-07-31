@@ -5151,7 +5151,15 @@ fun elabFile basis basis_tm topStr topSgn top_tm env changeEnv file =
                 open Print.PD
                 open Print
 
-                fun p_con env c = ElabPrint.p_con env (ElabOps.reduceCon env c)
+                (* -dumpTypesOnError exists to emit MORE diagnostics once errors
+                   have occurred, so this is an error-reporting path by
+                   construction: use the total normalizer, or a normalization
+                   failure here crashes the compiler after the real type error
+                   has already been reported (fork #17). *)
+                fun p_con env c =
+                    case ElabOps.reduceConOpt env c of
+                        SOME c' => ElabPrint.p_con env c'
+                      | NONE => ElabPrint.p_con env c
 
                 fun dumpDecl (d, env) =
                     case #1 d of
