@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (pin the exact release, not the moving v4 alias)
 
       - uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
 
@@ -28,7 +28,7 @@ jobs:
       # default.nix) and the built compiler are not re-downloaded/rebuilt every
       # time. Fixes GitHub's HTTP 429 rate-limiting of the nixpkgs archive under
       # frequent CI, and makes CI dramatically faster (near-instant on cache hit).
-      - uses: nix-community/cache-nix-action@8351fb9f51c580c96c509987ebb99e38aed956ce # v5
+      - uses: nix-community/cache-nix-action@8351fb9f51c580c96c509987ebb99e38aed956ce # v5.2.1 (pin the exact release, not the moving v5 alias)
         with:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('default.nix', 'derivation.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
@@ -202,7 +202,7 @@ jobs:
       # Coq actually lives.
       options: --user root
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (pin the exact release, not the moving v4 alias)
 
       - name: Build, kernel-check, and assert the assumption set
         # Inside a container GitHub defaults to `sh -e {0}`, where `set -o
@@ -214,6 +214,18 @@ jobs:
         run: |
           set -euo pipefail
           chown -R coq:coq .
+
+          # The container is pinned by digest precisely because this job's verdict
+          # only means something relative to a known kernel. Assert the version so
+          # the digest and its `# 8.19.2` comment can never silently disagree --
+          # otherwise the comment is unverified metadata and a digest bump that
+          # changed Coq would be caught only incidentally, by whether the
+          # Assumptions.expected golden happened to shift.
+          # shellcheck disable=SC2016
+          su coq -c 'eval "$(opam env)" && coqc --version' | tee /tmp/coqver.log
+          grep -qF '8.19.2' /tmp/coqver.log \
+            || { echo "COQ FAILED: image is not Coq 8.19.2 -- the pinned digest and its comment disagree"; exit 1; }
+
           # shellcheck disable=SC2016
           # The single quotes are DELIBERATE: $(opam env) must be evaluated by
           # the `su coq` subshell (where the opam switch exists), not by this
@@ -292,7 +304,7 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (pin the exact release, not the moving v4 alias)
 
       - uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
 
@@ -300,7 +312,7 @@ jobs:
       # default.nix) and the built compiler are not re-downloaded/rebuilt every
       # time. Fixes GitHub's HTTP 429 rate-limiting of the nixpkgs archive under
       # frequent CI, and makes CI dramatically faster (near-instant on cache hit).
-      - uses: nix-community/cache-nix-action@8351fb9f51c580c96c509987ebb99e38aed956ce # v5
+      - uses: nix-community/cache-nix-action@8351fb9f51c580c96c509987ebb99e38aed956ce # v5.2.1 (pin the exact release, not the moving v5 alias)
         with:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('default.nix', 'derivation.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
@@ -652,7 +664,7 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (pin the exact release, not the moving v4 alias)
 
       - name: Install toolchain + MySQL client (Oracle libmysqlclient, not mariadb-compat)
         run: |

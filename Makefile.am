@@ -64,8 +64,9 @@ src/urweb.mlton.lex.sml: src/urweb.mlton.lex
 src/urweb.mlton.grm.sml: src/urweb.mlton.grm
 	$(MLYACC) $<
 
-src/urweb.mlton.grm.sig: src/urweb.mlton.grm.sml
-	@test -f $@ || $(MLYACC) src/urweb.mlton.grm
+src/urweb.mlton.grm.sig: src/urweb.mlton.grm src/urweb.mlton.grm.sml
+	@if test ! -f $@ || test $@ -ot $<; then $(MLYACC) $<; fi
+	@touch $@
 
 #ifdef DEBUG
 #	MLTON += -const 'Exn.keepHistory true'
@@ -277,7 +278,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# Set-Cookie response header.
 	@echo "==> [http 1/8] cookiehttponly (Set-Cookie HttpOnly flag, PR#279) — serving on :$(PORT_COOKIEHTTPONLY)"
 	tests/cookiehttponly.exe -q -a 127.0.0.1 -p $(PORT_COOKIEHTTPONLY) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_COOKIEHTTPONLY)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_COOKIEHTTPONLY) 20 `cat $(TESTPID)`
 	(curl -si 'http://localhost:$(PORT_COOKIEHTTPONLY)/Cookiehttponly/main' | grep -i '^set-cookie:' | grep -qi 'httponly') || (kill `cat $(TESTPID)`; echo "Test 'cookiehttponly' failed: Set-Cookie header missing 'httponly' (PR#279)"; false)
 	kill `cat $(TESTPID)`
 	@# urweb/urweb#211: a UTF-16 surrogate PAIR (😀 = U+1F600) must decode to
@@ -289,7 +290,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# self-check emits SURROGATE_PAIR_OK, and we also byte-check for F0 9F 98 80.
 	@echo "==> [http 2/8] jsonsurrogate (UTF-16 surrogate-pair decode, #211) — serving on :$(PORT_JSONSURROGATE)"
 	tests/jsonsurrogate.exe -q -a 127.0.0.1 -p $(PORT_JSONSURROGATE) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_JSONSURROGATE)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_JSONSURROGATE) 20 `cat $(TESTPID)`
 	(curl -s 'http://localhost:$(PORT_JSONSURROGATE)/Jsonsurrogate/main' | grep -q 'SURROGATE_PAIR_OK') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: surrogate pair did not decode to one U+1F600 scalar value (strlen/strlenUtf8 self-check) -- urweb/urweb#211"; false)
 	(curl -s 'http://localhost:$(PORT_JSONSURROGATE)/Jsonsurrogate/main' | od -An -tx1 | tr -d ' \n' | grep -q 'f09f9880') || (kill `cat $(TESTPID)`; echo "Test 'jsonsurrogate' failed: response missing U+1F600 UTF-8 bytes F0 9F 98 80 -- urweb/urweb#211"; false)
 	kill `cat $(TESTPID)`
@@ -300,7 +301,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# a hardcoded value. -i so the status line is in curl's output.
 	@echo "==> [http 3/8] respstatus (setResponseStatus 404/429, #222) — serving on :$(PORT_RESPSTATUS)"
 	tests/respstatus.exe -q -a 127.0.0.1 -p $(PORT_RESPSTATUS) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_RESPSTATUS)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_RESPSTATUS) 20 `cat $(TESTPID)`
 	(curl -si 'http://localhost:$(PORT_RESPSTATUS)/Respstatus/notFound' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 404 did not set the status line to 404 (urweb/urweb#222)"; false)
 	(curl -si 'http://localhost:$(PORT_RESPSTATUS)/Respstatus/tooMany' | grep -qiE '^HTTP/[0-9.]+ 429( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'respstatus' failed: setResponseStatus 429 did not set the status line to 429 (urweb/urweb#222)"; false)
 	kill `cat $(TESTPID)`
@@ -313,7 +314,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# /Notfound/nope does not.
 	@echo "==> [http 4/8] notfound (custom 404 notFoundPage, #39) — serving on :$(PORT_NOTFOUND)"
 	tests/notfound.exe -q -a 127.0.0.1 -p $(PORT_NOTFOUND) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_NOTFOUND)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_NOTFOUND) 20 `cat $(TESTPID)`
 	(curl -si 'http://localhost:$(PORT_NOTFOUND)/Notfound/nope' | grep -qiE '^HTTP/[0-9.]+ 404( |$$)') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: an unmatched URL did not return a 404 status line (urweb/urweb#39)"; false)
 	(curl -s 'http://localhost:$(PORT_NOTFOUND)/Notfound/nope' | grep -q 'NOTFOUND_CUSTOM_BODY') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: the custom notFoundPage body was not served on a 404 (urweb/urweb#39)"; false)
 	(curl -si 'http://localhost:$(PORT_NOTFOUND)/Notfound/nope' | grep -qi '^content-type:.*text/html') || (kill `cat $(TESTPID)`; echo "Test 'notfound' failed: custom 404 not served as text/html (urweb/urweb#39)"; false)
@@ -333,7 +334,15 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	tests/daemon.exe -a 127.0.0.1 -p $(PORT_DAEMON) -d $(TESTDLOG) > $(TESTDOUT) || (echo "Test 'daemon' failed: the server exited nonzero under -d instead of daemonizing"; false)
 	@sed -n 's/.*Daemonized: pid \([0-9][0-9]*\).*/\1/p' $(TESTDOUT) > $(TESTPID)
 	(test -s $(TESTPID)) || (echo "Test 'daemon' failed: parent did not report a parseable 'Daemonized: pid <n>' on stdout under -d"; false)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_DAEMON)
+	@# http.c does bind -> listen -> fork, so the port is ALREADY accepting by
+	@# the time `daemon.exe -d` returns: a port poll here CANNOT FAIL, and the
+	@# three assertions below were left racing the fork with only this script's
+	@# own startup cost to protect them (log empty 2/8, marker absent 4/8 when
+	@# sampled at that instant).  Wait for the marker the assertions actually
+	@# depend on.  The `grep -q PERIODIC_FIRED` further down is now redundant,
+	@# and deliberately kept: it names the fork-ordering regression it guards.
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_DAEMON) 20 `cat $(TESTPID)`
+	bash $(srcdir)/tests/waitgrep.sh $(TESTDLOG) PERIODIC_FIRED
 	(curl -sf 'http://localhost:$(PORT_DAEMON)/Daemon/main' | grep -q 'DAEMON_ALIVE') || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: the detached daemon did not serve /Daemon/main in the background"; false)
 	(test -s $(TESTDLOG)) || (kill `cat $(TESTPID)` 2>/dev/null; echo "Test 'daemon' failed: -d log file $(TESTDLOG) was not written (stdout/stderr not redirected)"; false)
 	@# The app declares `task periodic` -> uw_request_init spawns a periodic thread
@@ -349,7 +358,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# missing declaration.
 	@echo "==> [http 6/8] svgtag (inline svg/path render with viewBox + fill-rule, #259) — serving on :$(PORT_SVGTAG)"
 	tests/svgtag.exe -q -a 127.0.0.1 -p $(PORT_SVGTAG) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_SVGTAG)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_SVGTAG) 20 `cat $(TESTPID)`
 	@# Liveness gate: if the fresh server died (e.g. bind failure against a stale
 	@# survivor from an aborted run), fail HERE rather than letting the greps pass
 	@# against whatever old process still answers on the port.
@@ -370,7 +379,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# and (b) NO raw 0x08 byte exists anywhere in the fetched app.js.
 	@echo "==> [http 7/8] jsesc (control chars octal-escaped into app.js, #121) — serving on :$(PORT_JSESC)"
 	tests/jsesc.exe -q -a 127.0.0.1 -p $(PORT_JSESC) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_JSESC)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_JSESC) 20 `cat $(TESTPID)`
 	kill -0 `cat $(TESTPID)` || (echo "Test 'jsesc' failed: the freshly started server is not running (stale process on :$(PORT_JSESC)?)"; false)
 	(curl -s "http://localhost:$(PORT_JSESC)$$(curl -s 'http://localhost:$(PORT_JSESC)/Jsesc/main' | grep -oE 'src="[^"]*"' | sed 's/src="//;s/"$$//')" -o /tmp/urweb.jsesc.js) || (kill `cat $(TESTPID)`; echo "Test 'jsesc' failed: could not fetch the served app.js (urweb/urweb#121)"; false)
 	(grep -qF 'A\\010B\\nC\\ttail' /tmp/urweb.jsesc.js) || (kill `cat $(TESTPID)`; echo "Test 'jsesc' failed: the pinned octal wire encoding of the control-char literal is missing from app.js (urweb/urweb#121)"; false)
@@ -386,7 +395,7 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	rm -f $(TESTPCDB)
 	sqlite3 $(TESTPCDB) < tests/postcommit.sql
 	tests/postcommit.exe -q -a 127.0.0.1 -p $(PORT_POSTCOMMIT) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_POSTCOMMIT)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_POSTCOMMIT) 20 `cat $(TESTPID)`
 	kill -0 `cat $(TESTPID)` || (echo "Test 'postcommit' failed: the freshly started server is not running (stale process on :$(PORT_POSTCOMMIT)?)"; false)
 	(curl -s 'http://localhost:$(PORT_POSTCOMMIT)/Postcommit/ok' | grep -q 'OK_ARMED') || (kill `cat $(TESTPID)`; echo "Test 'postcommit' failed: the successful post-COMMIT transactional request did not serve (urweb/urweb#273)"; false)
 	@# One fetch, two asserts: each /fail request arms+frees one transactional,
@@ -441,6 +450,11 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	cp -p $(DCACHEDIR)/mylib/src.ur $(DCACHEDIR)/mylib/.src.stamp
 	printf 'val v = "LIBV3"\n' > $(DCACHEDIR)/mylib/src.ur
 	touch -r $(DCACHEDIR)/mylib/.src.stamp $(DCACHEDIR)/mylib/src.ur
+	@# NOT a startup race -- this gap IS the red pin, and must not become a
+	@# readiness poll.  mod_db.sml's racyFresh (tm + 1s >= now) has to be
+	@# evaluated at INSERT; a lookup-time check goes false after 1s and would
+	@# trust the stale entry.  Without the gap both implementations pass and
+	@# the test loses its discriminating power (fork #60).
 	sleep 2
 	(cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb -boot -noEmacs -ccopt -O1 libmain | (! grep -q 'daemon cache hit')) || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a same-mtime content edit hit the OUTPUT cache -- content hashing regressed (urweb/urweb#133)"; false)
 	(strings $(DCACHEDIR)/libmain.exe | grep -q 'LIBV3') || (cd $(DCACHEDIR) && $(abs_builddir)/bin/urweb daemon stop; echo "Test 'daemoncache' failed: a SAME-SECOND library edit was served stale by the incremental elaborator -- the fork issue #60 racy-mtime (Racy smudge) fix regressed"; false)
@@ -501,13 +515,15 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	rm -f $(TESTDB)
 	sqlite3 $(TESTDB) < demo/demo.sql
 	demo/demo.exe -q -a 127.0.0.1 -p $(PORT_DEMO) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_DEMO)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_DEMO) 20 `cat $(TESTPID)`
+	kill -0 `cat $(TESTPID)` || (echo "Test 'demo' failed: the freshly started server is not running (stale process on :$(PORT_DEMO)?)"; false)
 	(curl -s 'http://localhost:$(PORT_DEMO)/Demo/Hello/main' | diff tests/hello.html -) || (kill `cat $(TESTPID)`; echo "Test 'Hello' failed"; /bin/false)
 	(curl -s 'http://localhost:$(PORT_DEMO)/Demo/Crud1/create?A=1&B=2&C=3&D=4' | diff tests/crud1.html -) || (kill `cat $(TESTPID)`; echo "Test 'Crud1' failed"; /bin/false)
 	kill `cat $(TESTPID)`
 	@echo "==> [dce] dead-abort-call elimination guard (#221) — serving on :$(PORT_DCE)"
 	tests/dce.exe -q -a 127.0.0.1 -p $(PORT_DCE) & echo $$! > $(TESTPID)
-	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_DCE)
+	bash $(srcdir)/tests/waitport.sh 127.0.0.1 $(PORT_DCE) 20 `cat $(TESTPID)`
+	kill -0 `cat $(TESTPID)` || (echo "Test 'dce' failed: the freshly started server is not running (stale process on :$(PORT_DCE)?)"; false)
 	(curl -s 'http://localhost:$(PORT_DCE)/Dce/main' > tests/dce.out && grep -q 'Do not eliminate me' tests/dce.out && ! grep -q 'Hello, DCE!' tests/dce.out) || (kill `cat $(TESTPID)`; echo "Test 'dce' failed: branch-selected error call was eliminated (urweb/urweb#221)"; false)
 	kill `cat $(TESTPID)`
 	@# IPv6 gate.  This was `if (ifconfig lo | grep -q inet6)`, which cannot
@@ -522,20 +538,28 @@ test: demo/demo.exe tests/dce.exe tests/cookiehttponly.exe tests/jsonsurrogate.e
 	@# separates "IPv6 absent" (exit 1) from "could not tell" (exit 2).  Set
 	@# REQUIRE_IPV6=1 to make either one a hard FAILURE instead of a skip, so a
 	@# machine that is supposed to have IPv6 cannot quietly stop testing it.
-	if bash $(srcdir)/tests/has-ipv6-loopback.sh; \
-	then \
+	@# NB the whole block is ONE recipe line, so make only sees the status of the
+	@# last command run.  Every assertion therefore ends in an explicit `exit 1`;
+	@# relying on the trailing `kill` to fail was accidental propagation that a
+	@# refactor would silently remove.
+	@bash $(srcdir)/tests/has-ipv6-loopback.sh; rc=$$?; \
+	if [ $$rc -eq 0 ]; then \
 		echo "Running IPv6 tests."; \
 		rm -f $(TESTDB); \
 		sqlite3 $(TESTDB) < demo/demo.sql; \
 		demo/demo.exe -q -A ::1 -p $(PORT_DEMO) & echo $$! > $(TESTPID); \
-		bash $(srcdir)/tests/waitport.sh ::1 $(PORT_DEMO); \
-		(curl -g -6 -s 'http://[::1]:$(PORT_DEMO)/Demo/Hello/main' | diff tests/hello.html -) || (kill `cat $(TESTPID)`; echo "Test 'Hello' failed"; /bin/false); \
-		(curl -g -6 -s 'http://[::1]:$(PORT_DEMO)/Demo/Crud1/create?A=1&B=2&C=3&D=4' | diff tests/crud1.html -) || (kill `cat $(TESTPID)`; echo "Test 'Crud1' failed"; /bin/false); \
+		bash $(srcdir)/tests/waitport.sh ::1 $(PORT_DEMO) 20 `cat $(TESTPID)` || exit 1; \
+		(curl -g -6 -s 'http://[::1]:$(PORT_DEMO)/Demo/Hello/main' | diff tests/hello.html -) || { kill `cat $(TESTPID)`; echo "Test 'Hello' failed (IPv6)"; exit 1; }; \
+		(curl -g -6 -s 'http://[::1]:$(PORT_DEMO)/Demo/Crud1/create?A=1&B=2&C=3&D=4' | diff tests/crud1.html -) || { kill `cat $(TESTPID)`; echo "Test 'Crud1' failed (IPv6)"; exit 1; }; \
 		kill `cat $(TESTPID)`; \
-	elif [ -n "$(REQUIRE_IPV6)" ]; then \
-		echo "*** IPv6 tests NOT RUN and REQUIRE_IPV6 is set -- failing rather than skipping."; \
-		echo "*** See the has-ipv6-loopback diagnosis above for which case this is."; \
-		false; \
+	elif [ $$rc -ge 2 ]; then \
+		echo "*** IPv6 PROBE UNAVAILABLE -- this is an UNTESTED configuration, not a"; \
+		echo "*** clean skip: the probe could not tell whether IPv6 exists.  Failing,"; \
+		echo "*** because 'I could not tell' is never a legitimate pass."; \
+		exit 1; \
+	elif [ "$(REQUIRE_IPV6)" = 1 ]; then \
+		echo "*** IPv6 unavailable and REQUIRE_IPV6=1 -- failing rather than skipping."; \
+		exit 1; \
 	else \
 		echo "*** SKIPPED IPv6 tests -- see the has-ipv6-loopback diagnosis above."; \
 		echo "*** These pages were NOT verified over IPv6.  Set REQUIRE_IPV6=1 to make this fatal."; \

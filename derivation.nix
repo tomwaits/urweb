@@ -91,7 +91,16 @@ stdenv.mkDerivation (finalAttrs: {
 
   checkPhase = ''
     runHook preCheck
-    make test
+    # REQUIRE_IPV6=1 turns "IPv6 unavailable" from a skip into a hard failure.
+    # This is the ONLY place it can be armed for CI: the nix sandbox does not
+    # inherit the environment, so setting it in ci.yml would do nothing -- and an
+    # unarmed knob is exactly how the IPv6 checks came to be skipped on every CI
+    # run while the suite still printed ALL CHECKS PASSED.  The sandbox
+    # demonstrably has ::1 (proven by the first CI run that actually executed
+    # them), so this is not speculative.  The cost is that `nix-build` on a
+    # genuinely IPv6-less machine now fails loudly rather than skipping quietly,
+    # which is the trade this whole change argues for.
+    make test REQUIRE_IPV6=1
     runHook postCheck
   '';
 
