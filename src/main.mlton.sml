@@ -27,6 +27,75 @@
 
 val socket = ".urweb_daemon"
 
+(* Whole-output cache for the compile daemon (urweb/urweb#133; supersedes the
+ * per-module idea of #47, which Corify's flattening blocks). Key = the full
+ * argument list (so different flags never share an entry). Fingerprint =
+ * CONTENT hashes (FNV-1a 64) of every input: every file the project parse
+ * consulted (each .urp incl. transitive libraries, notFoundPage / file /
+ * jsFile / mimeTypes assets -- Compiler.parsedFiles), every merged source
+ * .ur/.urs (toParseJob, accLibs = true, so library sources are included),
+ * every ffi .urs, include header, and link object. Content hashing -- not
+ * mtime -- because MLton's modTime is whole-second and a same-size sub-second
+ * edit must still miss. Input hashes are computed BEFORE the compile and
+ * recorded as-is on success (an edit racing the compile therefore misses on
+ * the next request); stamps of the produced outputs (exe, sql, endpoints)
+ * are appended so an output rebuilt, removed, or edited behind the daemon's
+ * back also misses. The cache lives only in the daemon process and only
+ * successful plain compiles are recorded. *)
+val daemonMode = ref false
+val daemonCache : (string * string) list ref = ref []
+
+(* FNV-1a 64-bit over file content: cheap, dependency-free, and adequate for
+ * cache invalidation (a dev-loop correctness device, not an adversarial
+ * boundary). *)
+fun hashFile path =
+    let
+        val inf = BinIO.openIn path
+        fun loop h =
+            let
+                val v = BinIO.inputN (inf, 65536)
+            in
+                if Word8Vector.length v = 0 then
+                    h
+                else
+                    loop (Word8Vector.foldl (fn (b, h) =>
+                                                Word64.* (Word64.xorb (h, Word64.fromInt (Word8.toInt b)),
+                                                          0wx100000001b3)) h v)
+            end
+        val h = loop 0wxcbf29ce484222325
+    in
+        BinIO.closeIn inf;
+        path ^ "|" ^ Word64.toString h ^ ";"
+    end
+    handle _ => path ^ "|absent;"
+
+(* Output stamp: mtime+size suffices here -- we produced the file ourselves,
+ * and any external touch/rebuild/removal changes it. *)
+fun fileStamp path =
+    (if OS.FileSys.access (path, []) then
+         path ^ "|" ^ Time.toString (OS.FileSys.modTime path)
+         ^ "|" ^ Position.toString (OS.FileSys.fileSize path) ^ ";"
+     else
+         path ^ "|absent;")
+    handle OS.SysErr _ => path ^ "|unreadable;"
+
+(* NONE when the project can't even be parsed -- caching then stays out of the
+ * way and the real compile reports the errors. *)
+fun projectFingerprint proj =
+    case Compiler.run Compiler.toParseJob proj of
+        NONE => NONE
+      | SOME (job : Compiler.job) =>
+        SOME {fp = String.concat (map hashFile (!Compiler.parsedFiles)
+                                  @ List.concat (map (fn s => [hashFile (s ^ ".ur"),
+                                                               hashFile (s ^ ".urs")])
+                                                     (#sources job))
+                                  @ map (fn f => hashFile (f ^ ".urs")) (#ffi job)
+                                  @ map hashFile (#headers job)
+                                  @ map hashFile (List.filter (fn l => not (String.isPrefix "-" l)) (#link job))),
+              outputs = fn () => fileStamp (#exe job)
+                                 ^ (case #sql job of NONE => "" | SOME f => fileStamp f)
+                                 ^ (case #endpoints job of NONE => "" | SOME f => fileStamp f)}
+
 exception Code of OS.Process.status
 
 datatype flag_arity =
@@ -310,10 +379,34 @@ fun oneRun args =
                 (Compiler.time Compiler.toCjrize job;
                  OS.Process.success)
             else
-                (if Compiler.compile job then
-                     OS.Process.success
-                 else
-                     OS.Process.failure)
+                let
+                    (* Daemon whole-output cache (#133): compare this request's
+                     * key + input-content fingerprint + output stamps against
+                     * the last successful compile. The input fingerprint is
+                     * the PRE-compile one on both sides, so an edit racing a
+                     * compile misses on the next request. *)
+                    val key = String.concatWith "\031" (job :: args)
+
+                    fun doCompile pre =
+                        if Compiler.compile job then
+                            (case pre of
+                                 SOME {fp, outputs} =>
+                                 daemonCache := (key, fp ^ outputs ())
+                                                :: List.filter (fn (k, _) => k <> key) (!daemonCache)
+                               | NONE => ();
+                             OS.Process.success)
+                        else
+                            OS.Process.failure
+                in
+                    case (if !daemonMode then projectFingerprint job else NONE) of
+                        SOME (pre as {fp, outputs}) =>
+                        if List.exists (fn (k, f) => k = key andalso f = fp ^ outputs ()) (!daemonCache) then
+                            (print "urweb: up to date (daemon cache hit; skipping compile)\n";
+                             OS.Process.success)
+                        else
+                            doCompile (SOME pre)
+                      | NONE => doCompile NONE
+                end
     end handle Code n => n
 
 fun send (sock, s) =
@@ -336,6 +429,7 @@ fun startDaemon () =
            | NONE =>
              let
                  val () = Elaborate.incremental := true
+                 val () = daemonMode := true
                  val listen = UnixSock.Strm.socket ()
 
                  fun loop () =

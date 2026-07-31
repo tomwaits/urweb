@@ -95,6 +95,11 @@ signature COMPILER = sig
 
     val parseUr : (string, Source.file) phase
     val parseUrs : (string, Source.sgn_item list) phase
+    (* Files consulted by the most recent project parse (each .urp incl.
+     * transitive libraries + file-content directives); consumed by the
+     * daemon's whole-output cache (#133). *)
+    val parsedFiles : string list ref
+
     val parseUrp : (string, job) phase
     val parseUrp' : (string, {Job : job, Libs : string list}) phase
 
