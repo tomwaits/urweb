@@ -9,10 +9,18 @@
 
 static int ok_ran = 0;
 
-/* Counts free() invocations for the FAILING transactional: the transactional
- * contract is free-exactly-once, and fork issue #7's double-fire (uw_commit's
- * post-COMMIT failure path freed the list, then request.c's try_rollback ->
- * uw_rollback swept it AGAIN) made this 2 on every failing request. */
+/* Counts free() invocations for the FAILING transactional, pinning the
+ * free-EXACTLY-ONCE half of the uw_register_transactional contract.
+ *
+ * Honest scope (an adversarial review corrected an earlier, wrong claim here):
+ * this assertion is NOT differential for fork #7's pre-fix double-fire on the
+ * ordinary request path -- request.c's uw_reset_keep_error_message already
+ * zeroes used_transactionals before any try_rollback, so that path never
+ * double-fired. The genuinely reachable pre-fix double-fires were
+ * uw_initialize's startup COMMIT-serialization path and any raw C-API
+ * embedder that calls uw_commit then uw_rollback. What this test does is pin
+ * the contract itself, so a future change to the sweep/consume discipline that
+ * DOES break the common path fails loudly here. */
 static int fail_free_count = 0;
 
 static void ok_commit(void *data) {

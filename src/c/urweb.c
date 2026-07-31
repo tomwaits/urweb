@@ -4225,8 +4225,13 @@ int uw_rollback(uw_context ctx, int will_retry) {
   int i;
   cleanup *cl;
 
-  if (ctx->client)
+  if (ctx->client) {
     release_client(ctx->client);
+    /* Releasing twice unlocks a mutex we no longer hold and underflows the
+       refcount (the pruner then never expunges the client).  Clearing the
+       handle makes release idempotent across uw_commit -> uw_rollback. */
+    ctx->client = NULL;
+  }
 
   for (cl = ctx->cleanup; cl < ctx->cleanup_front; ++cl)
     cl->func(cl->arg);
@@ -4308,8 +4313,10 @@ int uw_commit(uw_context ctx) {
       if (ctx->used_deltas > 0)
         pthread_mutex_unlock(&message_send_mutex);
 
-      if (ctx->client)
+      if (ctx->client) {
         release_client(ctx->client);
+        ctx->client = NULL; /* release is once-only; see uw_rollback */
+      }
 
       if (code == -1) {
         // This case is for a serialization failure, which is not really an "error."
@@ -4328,6 +4335,12 @@ int uw_commit(uw_context ctx) {
            this context (request.c's retry plumbing, uw_initialize, raw C-API
            embedders) must not fire rollback/free a second time. */
         ctx->used_transactionals = 0;
+
+        /* A failed COMMIT already ended the transaction; leaving this set made
+           the retry path issue a further ROLLBACK on a terminated txn (benign
+           on Postgres -- the only backend that reports -1 -- but a wasted
+           round-trip and a server-log warning per retry). */
+        ctx->transaction_started = 0;
 
         return 1;
       }
@@ -4353,8 +4366,10 @@ int uw_commit(uw_context ctx) {
           if (ctx->used_deltas > 0)
             pthread_mutex_unlock(&message_send_mutex);
 
-          if (ctx->client)
+          if (ctx->client) {
             release_client(ctx->client);
+            ctx->client = NULL; /* release is once-only; see uw_rollback */
+          }
 
           for (i = ctx->used_transactionals-1; i >= 0; --i)
             if (ctx->transactionals[i].rollback != NULL)
@@ -4373,6 +4388,18 @@ int uw_commit(uw_context ctx) {
         }
       }
 
+  /* fork #7 (related defect): a post-COMMIT (NULL-rollback) transactional's
+     commit callback may run SQL, which re-opens a transaction via
+     uw_ensure_transaction. Left open, that BEGIN leaks past SERVED on the
+     pooled connection. The callback ran to completion, so its writes were
+     intended: COMMIT them here -- BEFORE the delta send below, so we never
+     broadcast messages describing state that failed to become durable. */
+  if (ctx->app && ctx->transaction_started) {
+    ctx->transaction_started = 0;
+    if (ctx->app->db_commit(ctx))
+      uw_set_error_message(ctx, "Error committing SQL issued by a post-commit transactional callback");
+  }
+
   for (i = 0; i < ctx->used_deltas; ++i) {
     delta *d = &ctx->deltas[i];
     client *c = find_client(d->client);
@@ -4385,25 +4412,16 @@ int uw_commit(uw_context ctx) {
   if (ctx->used_deltas > 0)
     pthread_mutex_unlock(&message_send_mutex);
 
-  if (ctx->client)
+  if (ctx->client) {
     release_client(ctx->client);
+    ctx->client = NULL; /* release is once-only; see uw_rollback */
+  }
 
   for (i = ctx->used_transactionals-1; i >= 0; --i)
     if (ctx->transactionals[i].free)
       ctx->transactionals[i].free(ctx->transactionals[i].data, 0);
 
   ctx->used_transactionals = 0; /* consumed; see fork #7 */
-
-  /* fork #7 (related defect): a post-COMMIT (NULL-rollback) transactional's
-     commit callback may run SQL, which re-opens a transaction via
-     uw_ensure_transaction. Left open, that BEGIN leaks past SERVED on the
-     pooled connection. The callback ran to completion, so its writes were
-     intended: COMMIT them; surface a failure as the request's error. */
-  if (ctx->app && ctx->transaction_started) {
-    ctx->transaction_started = 0;
-    if (ctx->app->db_commit(ctx))
-      uw_set_error_message(ctx, "Error committing SQL issued by a post-commit transactional callback");
-  }
 
   uw_check(ctx, 1);
   *ctx->page.front = 0;
