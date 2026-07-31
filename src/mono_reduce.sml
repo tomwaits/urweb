@@ -69,6 +69,10 @@ fun simpleImpure isGlobal (tsyms, syms) =
                               | EServerCall _ => true
                               | ERecv _ => true
                               | ESleep _ => true
+                              (* `impure` below lists ESpawn; this predicate did not
+                                 (fork #4), so a spawn whose body is not itself flagged
+                                 was discardable -- the same class as urweb/urweb#221. *)
+                              | ESpawn _ => true
                               | ENamed n => IS.member (syms, n)
                               | ERel n =>
                                 let
@@ -713,7 +717,14 @@ fun reduce' (file : file) =
                                 val readsDb = does ReadDb
                                 val writesDb = does WriteDb
                                 val readsCookie = does ReadCookie
-                                val writesCookie = does ReadCookie
+                                (* Was `does ReadCookie` -- a copy-paste slip that made
+                                   writesCookie an alias of readsCookie (fork #5).  Both
+                                   guards below (ReadCookie's "not writesCookie" and
+                                   WriteCookie's "not writesCookie andalso not
+                                   readsCookie") were therefore computed against the
+                                   wrong effect, so a cookie WRITE in e' could be
+                                   reordered across a cookie read/write in b. *)
+                                val writesCookie = does WriteCookie
 
                                 fun verifyUnused eff =
                                     case eff of
@@ -854,8 +865,18 @@ fun reduce' (file : file) =
                                 case #1 e of
                                     ELet (x, t, e1, e2) => (ELet (x, t, e1, yankLets e2), #2 e)
                                   | ERecord xes =>
+                                    (* Projecting out of a literal record DISCARDS the
+                                       other fields, so it is only sound when those
+                                       siblings are effect-free.  Unguarded (fork #6),
+                                       `let r = {A = error <xml>boom</xml>, B = 2} in r.B`
+                                       silently lost the abort -- fail-closed became
+                                       fail-open, the same hazard as urweb/urweb#221. *)
                                     (case List.find (fn (x', _, _) => x' = x) xes of
-                                         SOME (_, e, _) => e
+                                         SOME (_, e', _) =>
+                                         if List.exists (fn (x', es, _) => x' <> x andalso impure env es) xes then
+                                             (EField (e, x), #2 e)
+                                         else
+                                             e'
                                        | NONE => (EField (e, x), #2 e))
                                   | _ => (EField (e, x), #2 e)
                         in

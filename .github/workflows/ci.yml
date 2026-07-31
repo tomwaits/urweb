@@ -186,6 +186,15 @@ jobs:
     # Run after nix-build so the store cache is warm (avoids both jobs
     # cold-fetching the pinned nixpkgs in parallel and racing the cache key).
     needs: nix-build-and-test
+    # ...but do NOT inherit its verdict. With a bare `needs:`, a failing (or
+    # non-successful) nix-build makes this job report "skipped", and a REQUIRED
+    # status check that never reaches a conclusion blocks the merge instead of
+    # failing it -- a PR would sit needing a manual re-run. `!cancelled()` keeps
+    # the ordering (so the cache stays warm) while letting this job run and
+    # report its OWN conclusion regardless of nix-build's. Cancellation is
+    # excluded deliberately: cancel-in-progress means a newer run is already
+    # superseding this one and will supply fresh checks.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     services:
